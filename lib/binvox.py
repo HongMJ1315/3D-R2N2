@@ -65,13 +65,3 @@ def load_voxel_file(filepath):
 if __name__ == '__main__':
     binvox_dataset()
 
-# %%
-# load_voxel_file('dataset/1a2b1863733c2ca65e26ee427f1e5a4c/voxel.txt')
-
-# %%
-
-
-# %%
-
-
-

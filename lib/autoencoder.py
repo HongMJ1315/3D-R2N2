@@ -14,6 +14,9 @@ import os
 import numpy as np
 import json
 import time
+
+# %% 
+ENCODED_TENSOR_SIZE = 3000
 # %%
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0):
@@ -69,7 +72,7 @@ class CNNEecoder(nn.Module):
         
         # Output Layer 4
         # 轉為 1D
-        self.fc1 = nn.Linear(32768, 13*13*13)
+        self.fc1 = nn.Linear(32768, ENCODED_TENSOR_SIZE)
 
         
     def forward(self, x):
@@ -104,7 +107,7 @@ class CNNDecoder(nn.Module):
     def __init__(self):
         super(CNNDecoder, self).__init__()
         # Input Layer 1
-        self.fc1 = nn.Linear(13*13*13, 128*28*28)
+        self.fc1 = nn.Linear(ENCODED_TENSOR_SIZE, 128*28*28)
                 
         # Hidden Layer 2
         self.cnn1 = nn.ConvTranspose2d(in_channels=128, out_channels=64,
@@ -233,8 +236,6 @@ def run_training(file_path, device, checkpoint_path):
     for epoch in range(start_epoch, num_epochs):
         start = time.time()
         cnt = 0
-        train_loss = []
-        val_loss = []
         datas = []
         resume = (last_file is not None)
         skip_cnt = 0

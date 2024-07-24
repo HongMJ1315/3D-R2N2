@@ -3,6 +3,7 @@ import torch.nn as nn
 import os
 from lib.checkpoint import load_checkpoint
 from lib.autoencoder import *
+from lib.config import *
 import time
 
 def image_encoder(device, model, imges):
@@ -91,7 +92,7 @@ def encode_image(image_directory, model_file, device, output_directory):
     print('Finish Encode Image')
     return encode_datas
 
-def encode_image_dataset(device, image_folder = DEFAULT_RENDERING_DATASET_FOLDER, model_file = DEFAULT_CHACKPOINT_FILE, encoded_image_folder = DEFAULT_ENCODED_DATASET_FOLDER):
+def encode_image_dataset(device, image_folder = DEFAULT_RENDERING_DATASET_FOLDER, model_file = DEFAULT_AUTOENCODER_FILE, encoded_image_folder = DEFAULT_ENCODED_DATASET_FOLDER):
     if(encoded_image_folder[-1] != '/'):
         encoded_image_folder += '/'
     if(not os.path.exists(encoded_image_folder)):

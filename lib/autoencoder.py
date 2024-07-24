@@ -7,20 +7,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
 from torch.utils.data import DataLoader, Dataset, random_split
 from lib.checkpoint import load_checkpoint, save_checkpoint
+from lib.config import *
 import matplotlib.pyplot as plt
 import cv2
 import os
 import numpy as np
 import json
 import time
-
-# %%
-DEFAULT_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-DEFAULT_CHACKPOINT_FILE = "checkpoint.pth.tar"
-DEFAULT_RENDERING_DATASET_FOLDER = "ShapeNetRendering"
-DEFAULT_ENCODED_DATASET_FOLDER = "dataset"
-DEFAULT_RESAULTS_IMAGE_FOLDER = "results"
-
 # %%
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0):
@@ -189,7 +182,7 @@ def image_preprocessing(images):
     return datas
 
 # %%
-def train_subData(epoch, datas, model, criterion, optimizer, device):
+def train_sub_epoch(epoch, datas, model, criterion, optimizer, device):
     train, val = train_test_split(datas, test_size=0.2)
     print("Epoch:{} Train Size:{} Val Size:{}".format(epoch, len(train), len(val)))
     train = train.to(device)
@@ -272,7 +265,7 @@ def run_training(file_path, device, checkpoint_path):
                     print(time.strftime("%H:%M:%S", time.localtime())) 
                     print('IO Time: {:.4f}'.format(end_io-start_io))
                     datas = image_preprocessing(datas)
-                    train, val = train_subData(epoch, datas, model, criterion, optimizer, device)
+                    train, val = train_sub_epoch(epoch, datas, model, criterion, optimizer, device)
                     train_loss.append(train)
                     val_loss.append(val)
                     datas = []
@@ -292,16 +285,16 @@ def run_training(file_path, device, checkpoint_path):
             end_io = time.time()
             print('IO Time: {:.4f}'.format(end_io-start_io))
             datas = image_preprocessing(datas)
-            train, val = train_subData(epoch, datas, model, criterion, optimizer, device)
+            train, val = train_sub_epoch(epoch, datas, model, criterion, optimizer, device)
             train_loss.append(train)
             val_loss.append(val)
             datas = []
             cnt = 0
         end = time.time()
-        train_loss_val = sum(train_loss)/len(train_loss)
-        val_loss_val = sum(val_loss)/len(val_loss)
-        print('Epoch [{}/{}], Train Loss:{:.4f}, Val Loss:{:.4f}, time: {:.4f}'.format(epoch+1, num_epochs, train_loss_val, val_loss_val, end-start))
-        epoch_losses.append((epoch,train_loss_val, val_loss_val))
+        epoch_train_loss = sum(train_loss)/len(train_loss)
+        epoch_val_loss = sum(val_loss)/len(val_loss)
+        print('Epoch [{}/{}], Train Loss:{:.4f}, Val Loss:{:.4f}, time: {:.4f}'.format(epoch+1, num_epochs, epoch_train_loss, epoch_val_loss, end-start))
+        epoch_losses.append((epoch,epoch_train_loss, epoch_val_loss))
 
         # Save checkpoint
         save_checkpoint({
@@ -310,22 +303,22 @@ def run_training(file_path, device, checkpoint_path):
             'optimizer': optimizer.state_dict(),
             'train_log': epoch_losses,
             'last_file': None,  # Reset last_file after completing the epoch
-            'train_loss': train_loss_history,
-            'val_loss': val_loss_history,
+            'train_loss': train_loss,
+            'val_loss': val_loss,
         }, filename=checkpoint_path)
 
-        if(early_stopping(val_loss_val)):
+        if(early_stopping(epoch_val_loss)):
             print('Early Stopping')
             break
     return model, epoch_losses
 
 
 # %%
-def train_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, checkpoint_path = DEFAULT_CHACKPOINT_FILE):
+def train_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, checkpoint_path = DEFAULT_AUTOENCODER_FILE):
     print('Train Autoencoder, Device:{}'.format(device))
     print()
     
-    model, train_log = run_training(dataset_path, device, checkpoint_path)
+    model, epoch_losses = run_training(dataset_path, device, checkpoint_path)
     
     model.eval()
     
@@ -334,12 +327,12 @@ def train_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, c
     torch.save(model.decoder.state_dict(), 'decoder.pth')
 
 
-    return model, train_log
+    return model, epoch_losses
     
             
 
 # %%
-def test_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, checkpoint_path = DEFAULT_CHACKPOINT_FILE, result_path = DEFAULT_RESAULTS_IMAGE_FOLDER, save_result = True):
+def test_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, checkpoint_path = DEFAULT_AUTOENCODER_FILE, result_path = DEFAULT_RESAULTS_IMAGE_FOLDER, save_result = True):
     print('Test Autoencoder, Device:{}'.format(device))
     datas = []
     for root, dirs, files in os.walk(dataset_path):

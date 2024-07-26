@@ -333,7 +333,7 @@ def train_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, c
             
 
 # %%
-def test_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, checkpoint_path = DEFAULT_AUTOENCODER_FILE, result_path = DEFAULT_RESAULTS_IMAGE_FOLDER, save_result = True):
+def test_autoencoder(device = DEFAULT_DEVICE, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, checkpoint_path = DEFAULT_AUTOENCODER_FILE, result_path = DEFAULT_RESAULTS_IMAGE_FOLDER, save_result = True):
     print('Test Autoencoder, Device:{}'.format(device))
     datas = []
     for root, dirs, files in os.walk(dataset_path):
@@ -350,11 +350,8 @@ def test_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, ch
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
             blurred = cv2.GaussianBlur(gray, (5, 5), 0)
             edge = cv2.Canny(blurred, 70, 210,apertureSize=3)
-
-            plt.imshow(edge, cmap='gray')
             
             img = cv2.merge((img[:,:,0], img[:,:,1], img[:,:,2], img[:,:,3], edge))
-            
             
             img = img.transpose(2, 0, 1)
             datas.append(img)
@@ -366,7 +363,8 @@ def test_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, ch
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-    load_checkpoint(checkpoint_path, model, optimizer, device)
+    _, _, _, train_loss, val_loss = load_checkpoint(checkpoint_path, model, optimizer, device)
+    model.to(device)
 
     model.eval()
     for img in datas:
@@ -397,15 +395,24 @@ def test_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, ch
             if(save_result):
                 plt.savefig(result_path+'/'+str(time.time())+'.png')
             plt.show()
-            # '''
 
-
+def show_loss_curve(checkpoint_path = DEFAULT_AUTOENCODER_FILE, device = DEFAULT_DEVICE,save_result = True):
+    model = Autoencoder()
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    _, _, _, train_loss, val_loss = load_checkpoint(checkpoint_path, model, optimizer, device)
+    plt.plot(train_loss, label='train loss')
+    plt.plot(val_loss, label='val loss')
+    plt.legend()
+    plt.show()
+    if(save_result):
+        plt.savefig('loss_curve.png')
 # %%
 if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Device:{}'.format(device))
-    model, train_log = train_autoencoder(device)
-    test_autoencoder(device)
+    # model, train_log = train_autoencoder(device)
+    test_autoencoder(device, dataset_path="test", checkpoint_path="autoencoder.pth.tar", result_path="results", save_result=True)
     # encode_image_dataset(device, model_file='model3/checkpoint.pth.tar', image_folder='ShapeNetRendering', encoded_image_folder='dataset')
     print('Finish')
 

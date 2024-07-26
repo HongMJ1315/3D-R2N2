@@ -10,6 +10,7 @@ from lib.checkpoint import load_checkpoint, save_checkpoint
 from lib.image import load_encoded_data
 from lib.binvox import load_voxel_file
 from lib.config import *
+from lib.autoencoder import *
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import cv2
@@ -19,7 +20,7 @@ import numpy as np
 import time
 
 # %%
-LSTM_NEUROES = 13*13*13
+LSTM_NEUROES = ENCODED_TENSOR_SIZE
 
 
 # %%
@@ -127,9 +128,9 @@ class LSTMDecoder(nn.Module):
         self.decoder = CTNN3DDecoder()
         
     def forward(self, x, prev_output, h_0, c_0):
-        out, h_0, c_0 = self.lstm(x, prev_output, h_0, c_0)
-        out = self.decoder(out)
-        return out, h_0, c_0
+        prev_out, h_0, c_0 = self.lstm(x, prev_output, h_0, c_0)
+        out = self.decoder(prev_out)
+        return out, prev_out, h_0, c_0
 
 
 # %%
@@ -142,7 +143,7 @@ class TrainDataset(Dataset):
         return len(self.datas)
 
     def __getitem__(self, index):
-        return self.datas[index], self.voxel[index]
+        return self.datas[index], self.voxel[index].astype(np.float32)
 
 # %%
 def train_sub_epoch(epoch, datas, model, criterion, optimizer, device):
@@ -172,10 +173,10 @@ def train_sub_epoch(epoch, datas, model, criterion, optimizer, device):
         inputs = inputs.view(batch_size, seq_len, -1)
         for t in range(seq_len):
             input_t = inputs[:, t]
-            output, h_0, c_0 = model(input_t, prev_output, h_0, c_0)
-            prev_output = output
-
-        loss = criterion(prev_output, targets)
+            decode_output, prev_output, h_0, c_0 = model(input_t, prev_output, h_0, c_0)
+        
+        test_chennal = decode_output[:, 0]
+        loss = criterion(test_chennal , targets)
         loss.backward()
         optimizer.step()
         train_logs.append(loss.item())
@@ -183,6 +184,8 @@ def train_sub_epoch(epoch, datas, model, criterion, optimizer, device):
     model.eval()
     with torch.no_grad():
         for inputs, targets in val_loader:
+            inputs = inputs.to(device)
+            targets = targets.to(device)
             batch_size = inputs.size(0)
             h_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(inputs.device)
             c_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(inputs.device)
@@ -190,12 +193,13 @@ def train_sub_epoch(epoch, datas, model, criterion, optimizer, device):
 
             inputs = inputs.view(batch_size, seq_len, -1)
             for t in range(seq_len):
-                input_t = input_t.view(batch_size, -1)
-                output, h_0, c_0 = model(input_t, prev_output, h_0, c_0)
-                prev_output = output
-
-            loss = criterion(output, targets)
+                input_t = inputs[:, t]
+                decode_output, prev_output, h_0, c_0 = model(input_t, prev_output, h_0, c_0)
+        
+            test_chennal = decode_output[:, 0]
+            loss = criterion(test_chennal , targets)
             val_logs.append(loss.item())
+            
     end = time.time()
 
     print("Epoch:{} Sub Train Time:{:.2f} Train Loss:{:.4f} Val Loss:{:.4f}".format(epoch, end - start,
@@ -239,6 +243,7 @@ def run_training(file_path, device, checkpoint_path):
             print(root)
             render = load_encoded_data(root)
             voxel = load_voxel_file(root + "/voxel.txt")
+            voxel.reshape(32, 32, 32)
             if render is None or voxel is None:
                 continue             
             for i in render:
@@ -304,3 +309,41 @@ if __name__ == "__main__":
     model, epoch_losses = train_lstmdecoder(device)
     print(epoch_losses)
     
+
+# %%
+# 初始化模型
+model = LSTM()
+batch_size = 1
+
+# 初始化隐藏层状态
+h_0 = torch.zeros(model.num_layers, batch_size, model.hidden_size)
+c_0 = torch.zeros(model.num_layers, batch_size, model.hidden_size)
+
+# 第一次输入
+input_1 = torch.randn(batch_size, 1, LSTM_NEUROES)  # (batch_size, seq_len, input_size)
+print(input_1.shape)
+output, h_n, c_n = model(input_1, None, h_0, c_0)
+print("第一次输出:", output)
+
+# 第二次输入，使用第一次的输出作为一部分输入
+input_2 = torch.randn(batch_size, 1, LSTM_NEUROES)  # 另外的输入
+new_input = torch.cat((input_2, output.unsqueeze(1)), dim=2)  # 合并输出作为输入的一部分
+new_input = model.input_fc(new_input)  # 映射到原始input_size
+
+output, h_n, c_n = model(new_input, h_n, c_n)
+print("第二次输出:", output)
+
+# 多次迭代输入进行修正
+num_iterations = 5
+for i in range(num_iterations):
+    input_next = torch.randn(batch_size, 1, LSTM_NEUROES)  # 另外的输入
+    new_input = torch.cat((input_next, output.unsqueeze(1)), dim=2)  # 合并输出作为输入的一部分
+    new_input = model.input_fc(new_input)  # 映射到原始input_size
+
+    output, h_n, c_n = model(new_input, h_n, c_n)
+    print(f"第{i+3}次输出:", output)
+
+# %% [markdown]
+# 
+
+

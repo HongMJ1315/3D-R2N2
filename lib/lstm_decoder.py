@@ -74,52 +74,57 @@ class LSTM(nn.Module):
 class CTNN3DDecoder(nn.Module):
     def __init__(self):
         super(CTNN3DDecoder, self).__init__()
-        self.fc = nn.Linear(LSTM_NEUROES, 8*8*8*16)
+        self.fc = nn.Linear(LSTM_NEUROES, 8*8*8*16)  # 假設 LSTM_NEUROES 是可變的
         
-        self.cov1 = nn.ConvTranspose3d(in_channels = 16, out_channels = 14,
-                                kernel_size = 3, stride = 2, padding = 2)
-        self.cov2 = nn.ConvTranspose3d(in_channels = 14, out_channels = 12,
-                                kernel_size = 3, stride = 2, padding = 2)
+        self.conv1 = nn.ConvTranspose3d(in_channels=16, out_channels=12, kernel_size=3, stride=1, padding=1)
         self.relu1 = nn.ReLU()
+        self.dropout1 = nn.Dropout3d(p=0.2)
+        self.upsample1 = nn.Upsample(scale_factor=2, mode='nearest')
         
-        self.cov3 = nn.ConvTranspose3d(in_channels = 12, out_channels = 10,
-                                kernel_size = 3, stride = 2, padding = 2)
-        self.cov4 = nn.ConvTranspose3d(in_channels = 10, out_channels = 8,
-                                kernel_size = 3, stride = 2, padding = 2)
+        self.conv2 = nn.ConvTranspose3d(in_channels=12, out_channels=8, kernel_size=3, stride=1, padding=1)
         self.relu2 = nn.ReLU()
-                
-        self.cov5 = nn.ConvTranspose3d(in_channels = 8, out_channels = 6,
-                                kernel_size = 3, stride = 2, padding = 2)
-        self.cov6 = nn.ConvTranspose3d(in_channels = 6, out_channels = 4,
-                                kernel_size = 3, stride = 2, padding = 2)
-        self.relu3 = nn.ReLU()
-        self.upsample = nn.Upsample(size=(32, 32, 32), mode='nearest')        
+        self.dropout2 = nn.Dropout3d(p=0.2)
+        self.upsample2 = nn.Upsample(scale_factor=2, mode='nearest')
         
-        # self.cov4 = nn.Conv3d(in_channels = 40, out_channel = 1, )
+        self.conv3 = nn.ConvTranspose3d(in_channels=8, out_channels=4, kernel_size=3, stride=1, padding=1)
+        self.relu3 = nn.ReLU()
+        self.dropout3 = nn.Dropout3d(p=0.2)
+        self.upsample3 = nn.Upsample(scale_factor=2, mode='nearest')
+        
+        self.conv4 = nn.ConvTranspose3d(in_channels=4, out_channels=4, kernel_size=3, stride=1, padding=1)
+        self.relu4 = nn.ReLU()
+        self.dropout4 = nn.Dropout3d(p=0.2)
+        self.upsample4 = nn.Upsample(size=(32, 32, 32), mode='nearest')
         
     def forward(self, x):
         out = self.fc(x)
         out = out.view(1, 16, 8, 8, 8)
         
-        out = self.cov1(out)
-        out = self.cov2(out)
+        out = self.conv1(out)
         out = self.relu1(out)
+        out = self.dropout1(out)
+        out = self.upsample1(out)
 
-        out = self.cov3(out)
-        out = self.cov4(out)
+        out = self.conv2(out)
         out = self.relu2(out)
+        out = self.dropout2(out)
+        out = self.upsample2(out)
         
-        out = self.cov5(out)
-        out = self.cov6(out)
+        out = self.conv3(out)
         out = self.relu3(out)
-        out = self.upsample(out)
-        return out
+        out = self.dropout3(out)
+        out = self.upsample3(out)
         
+        out = self.conv4(out)
+        out = self.relu4(out)
+        out = self.dropout4(out)
+        out = self.upsample4(out)
+        print(out.shape)
+        return out
+
 # model = CTNN3DDecoder()
 # test = torch.randn(LSTM_NEUROES)
 # model(test)
-
-
 # %%
 class LSTMDecoder(nn.Module):
     def __init__(self):

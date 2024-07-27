@@ -1,5 +1,6 @@
 # %%
 import torch
+import asyncio
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -9,14 +10,24 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from lib.checkpoint import load_checkpoint, save_checkpoint
 from lib.config import *
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 import cv2
 import os
 import numpy as np
 import json
 import time
 
+
 # %% 
 ENCODED_TENSOR_SIZE = 3000
+
+# 创建全局变量保存 figure 和 axes 对象
+fig, ax = plt.subplots()
+train_line, = ax.plot([], [], label='Train Loss')
+val_line, = ax.plot([], [], label='Val Loss')
+ax.set_xlabel('Sub-Epoch')
+ax.set_ylabel('Loss')
+ax.legend()
 # %%
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0):
@@ -184,8 +195,22 @@ def image_preprocessing(images):
     datas = torch.from_numpy(datas)
     return datas
 
-# %%
-def train_sub_epoch(epoch, datas, model, criterion, optimizer, device):
+#%%
+def update_plot(train_loss, val_loss):
+    train_line.set_data(range(len(train_loss)), train_loss)
+    val_line.set_data(range(len(val_loss)), val_loss)
+    ax.set_xlim(0, len(train_loss))
+    ax.set_ylim(0, max(max(train_loss), max(val_loss)) if train_loss and val_loss else 1)
+    fig.canvas.draw()
+    fig.canvas.flush_events()
+
+async def plot_losses(train_loss, val_loss):
+    update_plot(train_loss, val_loss)
+    plt.pause(0.001)  # 暫停一小段時間以更新圖形
+#%%
+
+# 更新 train_sub_epoch 函數中的 await plot_losses
+async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, train_loss, val_loss):
     train, val = train_test_split(datas, test_size=0.2)
     print("Epoch:{} Train Size:{} Val Size:{}".format(epoch, len(train), len(val)))
     train = train.to(device)
@@ -208,20 +233,28 @@ def train_sub_epoch(epoch, datas, model, criterion, optimizer, device):
 
     model.eval()
     with torch.no_grad():
-        val_loss = 0
+        val_loss_value = 0
         for data in val:
             img = data
             recon = model(img)
             loss = criterion(recon, img)
-            val_loss += loss.item()
-        val_logs.append(val_loss/len(val))
+            val_loss_value += loss.item()
+        val_logs.append(val_loss_value/len(val))
     end = time.time()
 
     print("Epoch:{} Sub Train Time:{:.2f} Train Loss:{:.4f} Val Loss:{:.4f}".format(epoch, end-start, sum(train_logs)/len(train_logs), sum(val_logs)/len(val_logs)))
+    
+    # 更新總損失列表
+    train_loss.append(sum(train_logs)/len(train_logs))
+    val_loss.append(sum(val_logs)/len(val_logs))
+    
+    # 繪製損失曲線
+    await plot_losses(train_loss, val_loss)
+    
     return sum(train_logs)/len(train_logs), sum(val_logs)/len(val_logs)
 
-# %%
-def run_training(file_path, device, checkpoint_path):
+#%%
+async def run_training(file_path, device, checkpoint_path):
     model = Autoencoder()
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
@@ -231,7 +264,6 @@ def run_training(file_path, device, checkpoint_path):
 
     start_epoch, epoch_losses, last_file, train_loss, val_loss = load_checkpoint(checkpoint_path, model, optimizer, device)
     
-    # 將所有參數移到 GPU 上
     print('Start Training')
     for epoch in range(start_epoch, num_epochs):
         start = time.time()
@@ -250,8 +282,6 @@ def run_training(file_path, device, checkpoint_path):
                     continue
 
                 file_name = os.path.join(root, file)
-                label = file_name.split('/')[-3]
-
                 if(file_name.split('.')[-1] != 'png'):
                     continue
                 cnt += 1
@@ -260,19 +290,15 @@ def run_training(file_path, device, checkpoint_path):
                     print("Error:{}".format(file_name))
                     continue
                 datas.append(img)
-                if(cnt > 100):
+                if(cnt >= 100):
                     end_io = time.time()
-                    # SHoew Current Time hh:mm:ss
                     print(time.strftime("%H:%M:%S", time.localtime())) 
                     print('IO Time: {:.4f}'.format(end_io-start_io))
                     datas = image_preprocessing(datas)
-                    train, val = train_sub_epoch(epoch, datas, model, criterion, optimizer, device)
-                    train_loss.append(train)
-                    val_loss.append(val)
+                    await train_sub_epoch(epoch, datas, model, criterion, optimizer, device, train_loss, val_loss)
                     datas = []
                     cnt = 0
                     start_io = time.time()
-                    # Save checkpoint
                     save_checkpoint({
                         'epoch': epoch,
                         'state_dict': model.state_dict(),
@@ -286,29 +312,26 @@ def run_training(file_path, device, checkpoint_path):
             end_io = time.time()
             print('IO Time: {:.4f}'.format(end_io-start_io))
             datas = image_preprocessing(datas)
-            train, val = train_sub_epoch(epoch, datas, model, criterion, optimizer, device)
-            train_loss.append(train)
-            val_loss.append(val)
+            await train_sub_epoch(epoch, datas, model, criterion, optimizer, device, train_loss, val_loss)
             datas = []
             cnt = 0
         end = time.time()
         epoch_train_loss = sum(train_loss)/len(train_loss)
         epoch_val_loss = sum(val_loss)/len(val_loss)
         print('Epoch [{}/{}], Train Loss:{:.4f}, Val Loss:{:.4f}, time: {:.4f}'.format(epoch+1, num_epochs, epoch_train_loss, epoch_val_loss, end-start))
-        epoch_losses.append((epoch,epoch_train_loss, epoch_val_loss))
+        epoch_losses.append((epoch, epoch_train_loss, epoch_val_loss))
 
-        # Save checkpoint
         save_checkpoint({
             'epoch': epoch + 1,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
             'train_log': epoch_losses,
-            'last_file': None,  # Reset last_file after completing the epoch
+            'last_file': None,
             'train_loss': train_loss,
             'val_loss': val_loss,
         }, filename=checkpoint_path)
 
-        if(early_stopping(epoch_val_loss)):
+        if early_stopping(epoch_val_loss):
             print('Early Stopping')
             break
     return model, epoch_losses
@@ -318,9 +341,10 @@ def run_training(file_path, device, checkpoint_path):
 def train_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, checkpoint_path = DEFAULT_AUTOENCODER_FILE):
     print('Train Autoencoder, Device:{}'.format(device))
     print()
+    plt.ion()
+    result = asyncio.run(run_training(dataset_path, device, checkpoint_path))
     
-    model, epoch_losses = run_training(dataset_path, device, checkpoint_path)
-    
+    model, epoch_losses = result
     model.eval()
     
     torch.save(model.state_dict(), 'model.pth')

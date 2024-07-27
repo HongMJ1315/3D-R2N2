@@ -78,22 +78,21 @@ class CTNN3DDecoder(nn.Module):
         
         self.conv1 = nn.ConvTranspose3d(in_channels=16, out_channels=12, kernel_size=3, stride=1, padding=1)
         self.relu1 = nn.ReLU()
-        self.dropout1 = nn.Dropout3d(p=0.2)
         self.upsample1 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.dropout1 = nn.Dropout3d(p=0.25)
         
         self.conv2 = nn.ConvTranspose3d(in_channels=12, out_channels=8, kernel_size=3, stride=1, padding=1)
         self.relu2 = nn.ReLU()
-        self.dropout2 = nn.Dropout3d(p=0.2)
         self.upsample2 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.dropout2 = nn.Dropout3d(p=0.25)
         
         self.conv3 = nn.ConvTranspose3d(in_channels=8, out_channels=4, kernel_size=3, stride=1, padding=1)
         self.relu3 = nn.ReLU()
-        self.dropout3 = nn.Dropout3d(p=0.2)
         self.upsample3 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.dropout3 = nn.Dropout3d(p=0.25)
         
         self.conv4 = nn.ConvTranspose3d(in_channels=4, out_channels=4, kernel_size=3, stride=1, padding=1)
         self.relu4 = nn.ReLU()
-        self.dropout4 = nn.Dropout3d(p=0.2)
         self.upsample4 = nn.Upsample(size=(32, 32, 32), mode='nearest')
         
     def forward(self, x):
@@ -102,22 +101,21 @@ class CTNN3DDecoder(nn.Module):
         
         out = self.conv1(out)
         out = self.relu1(out)
-        out = self.dropout1(out)
         out = self.upsample1(out)
+        out = self.dropout1(out)
 
         out = self.conv2(out)
         out = self.relu2(out)
-        out = self.dropout2(out)
         out = self.upsample2(out)
+        out = self.dropout2(out)
         
         out = self.conv3(out)
         out = self.relu3(out)
-        out = self.dropout3(out)
         out = self.upsample3(out)
+        out = self.dropout3(out)
         
         out = self.conv4(out)
         out = self.relu4(out)
-        out = self.dropout4(out)
         out = self.upsample4(out)
         print(out.shape)
         return out

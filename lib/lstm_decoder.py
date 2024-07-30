@@ -324,8 +324,7 @@ if __name__ == "__main__":
     print(epoch_losses)
     
 
-# %%
-# 初始化模型
+'''
 model = LSTM()
 batch_size = 1
 
@@ -356,8 +355,5 @@ for i in range(num_iterations):
 
     output, h_n, c_n = model(new_input, h_n, c_n)
     print(f"第{i+3}次输出:", output)
-
-# %% [markdown]
-# 
-
+# '''
 

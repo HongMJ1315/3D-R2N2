@@ -70,22 +70,26 @@ def encode_image(image_directory, model_file, device, output_directory):
                 continue
             datas.append(img)
             labels.append(label)
-            if(cnt > 1000):
-                # SHoew Current Time hh:mm:ss
+            if(cnt >= 1000):
+                print("IO Time:{}".format(time.time() - start_io))
+                encoded_time = time.time()
                 datas = image_preprocessing(datas)
                 result = image_encoder(device, model, datas)
                 for i, label in enumerate(labels):
                     data = result[i].astype(np.float32).reshape(1, -1)  # 確保數據類型為 float32
                     write_encoded_data(output_directory, label, data)
+                print("encode 1000 images, Time:{}".format(time.time() - encoded_time))
                 datas = []
                 labels = []
                 cnt = 0
     if(len(datas) > 0):
+        encoded_time = time.time()
         datas = image_preprocessing(datas)
         result = image_encoder(device, model, datas)
         for i, label in enumerate(labels):
             data = result[i].astype(np.float32).reshape(1, -1)  # 確保數據類型為 float32
             write_encoded_data(output_directory, label, data)
+        print("encode {} images, Time:{}".format(len(datas), time.time() - encoded_time))
         datas = []
         labels = []
         cnt = 0

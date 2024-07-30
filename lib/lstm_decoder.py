@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from lib.checkpoint import load_checkpoint, save_checkpoint
 from lib.image import load_encoded_data
 from lib.binvox import load_voxel_file
+from lib.curve import *
 from lib.config import *
 from lib.autoencoder import *
 import torch.optim as optim
@@ -149,7 +150,7 @@ class TrainDataset(Dataset):
         return self.datas[index], self.voxel[index].astype(np.float32)
 
 # %%
-def train_sub_epoch(epoch, datas, model, criterion, optimizer, device):
+async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, train_loss, val_loss):
     data_len = len(datas)
     train_data, val_data = random_split(datas, [int(data_len * 0.8), data_len - int(data_len * 0.8)])
     print("Epoch:{} Train Size:{} Val Size:{}".format(epoch, len(train_data), len(val_data)))
@@ -208,11 +209,16 @@ def train_sub_epoch(epoch, datas, model, criterion, optimizer, device):
     print("Epoch:{} Sub Train Time:{:.2f} Train Loss:{:.4f} Val Loss:{:.4f}".format(epoch, end - start,
                                                                                     sum(train_logs) / len(train_logs),
                                                                                     sum(val_logs) / len(val_logs)))
+    train_loss.append(sum(train_logs) / len(train_logs))
+    val_loss.append(sum(val_logs) / len(val_logs))
+    
+    await plot_losses(train_loss, val_loss)
+    
     return sum(train_logs) / len(train_logs), sum(val_logs) / len(val_logs)
 
 
 # %%
-def run_training(file_path, device, checkpoint_path):
+async def run_training(file_path, device, checkpoint_path):
     model = LSTMDecoder()
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
@@ -255,11 +261,10 @@ def run_training(file_path, device, checkpoint_path):
             cnt += 1
             if(cnt >= 10):
                 end_io = time.time()
+                print(time.strftime("%H:%M:%S", time.localtime())) 
                 print("IO Time:{:.2f}".format(end_io-start_io))
                 dataset = TrainDataset(renders, voxels)
-                train, val = train_sub_epoch(epoch, dataset, model, criterion, optimizer, device)
-                train_loss.append(train)
-                val_loss.append(val)
+                await train_sub_epoch(epoch, dataset, model, criterion, optimizer, device, train_loss, val_loss)
                 renders = []
                 voxels = []
                 cnt = 0
@@ -275,23 +280,26 @@ def run_training(file_path, device, checkpoint_path):
                 }, filename = checkpoint_path)
         if(cnt > 0):
             dataset = TrainDataset(renders, voxels)
-            train, val = train_sub_epoch(epoch, dataset, model, criterion, optimizer, device)
-            train_loss.append(train)
-            val_loss.append(val)
-            save_checkpoint({
-                'epoch': epoch,
-                'state_dict': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch_losses': epoch_losses,
-                'last_file': None,
-                'train_loss': train_loss,
-                'val_loss': val_loss,
-            }, filename = checkpoint_path)
+            await train_sub_epoch(epoch, dataset, model, criterion, optimizer, device, train_loss, val_loss)
+            renders = []
+            voxels = []
+            cnt = 0
         end = time.time()
         epoch_train_loss = sum(train_loss)/len(train_loss)
         epoch_val_loss = sum(val_loss)/len(val_loss)
-        epoch_losses.append((epoch_train_loss, epoch_val_loss))
         print("Epoch:{} Time:{:.2f} Train Loss:{:.4f} Val Loss:{:.4f}".format(epoch, end-start, epoch_train_loss, epoch_val_loss))
+        epoch_losses.append((epoch_train_loss, epoch_val_loss))
+        
+        save_checkpoint({
+            'epoch': epoch,
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'epoch_losses': epoch_losses,
+            'last_file': None,
+            'train_loss': train_loss,
+            'val_loss': val_loss,
+        }, filename = checkpoint_path)
+        
         if early_stopping(epoch_val_loss):
             print("Early Stopping at Epoch:{}".format(epoch))
             break
@@ -299,6 +307,9 @@ def run_training(file_path, device, checkpoint_path):
 
 # %%
 def train_lstmdecoder(device, dataset_path = DEFAULT_ENCODED_DATASET_FOLDER, checkpoint_path = DEFAULT_LSTMDECODER_FILE):
+    print("Start Training LSTMDecoder, Device:{}".format(device))
+    print()
+    
     model, epoch_losses = run_training(dataset_path, device, checkpoint_path)
     model.eval()
     torch.save(model.state_dict(), "model/lstmdecoder.pth")

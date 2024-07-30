@@ -14,7 +14,7 @@ def read_binvox(file_path):
     with open(file_path, 'rb') as f:
         model = binvox_rw.read_as_3d_array(f).data
         return model
-def save_model_data(floder):
+def load_model_data(floder):
     dataset = []
     print("Loading data from " + floder)
     for root, dirs, files in os.walk(floder):
@@ -31,7 +31,7 @@ def save_model_data(floder):
 
 # %%
 def binvox_dataset(binvox_folder=DEFAULT_BINVOX_DATASET_FOLDER, output_folder=DEFAULT_VOXEL_DATASET_FOLDER):
-    result = save_model_data(binvox_folder)
+    result = load_model_data(binvox_folder)
     # Turn the result data form bool to int
     for i in range(len(result)):
         result[i] = (result[i][0], result[i][1].astype(int))

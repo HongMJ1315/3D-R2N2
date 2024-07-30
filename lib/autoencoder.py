@@ -9,6 +9,7 @@ from sklearn.preprocessing import LabelBinarizer
 from torch.utils.data import DataLoader, Dataset, random_split
 from lib.checkpoint import load_checkpoint, save_checkpoint
 from lib.config import *
+from lib.curve import *
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import cv2
@@ -20,14 +21,6 @@ import time
 
 # %% 
 ENCODED_TENSOR_SIZE = 3000
-
-# 创建全局变量保存 figure 和 axes 对象
-fig, ax = plt.subplots()
-train_line, = ax.plot([], [], label='Train Loss')
-val_line, = ax.plot([], [], label='Val Loss')
-ax.set_xlabel('Sub-Epoch')
-ax.set_ylabel('Loss')
-ax.legend()
 # %%
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0):
@@ -196,18 +189,6 @@ def image_preprocessing(images):
     return datas
 
 #%%
-def update_plot(train_loss, val_loss):
-    train_line.set_data(range(len(train_loss)), train_loss)
-    val_line.set_data(range(len(val_loss)), val_loss)
-    ax.set_xlim(0, len(train_loss))
-    ax.set_ylim(0, max(max(train_loss), max(val_loss)) if train_loss and val_loss else 1)
-    fig.canvas.draw()
-    fig.canvas.flush_events()
-
-async def plot_losses(train_loss, val_loss):
-    update_plot(train_loss, val_loss)
-    plt.pause(0.001)  # 暫停一小段時間以更新圖形
-#%%
 
 # 更新 train_sub_epoch 函數中的 await plot_losses
 async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, train_loss, val_loss):
@@ -322,7 +303,7 @@ async def run_training(file_path, device, checkpoint_path):
         epoch_losses.append((epoch, epoch_train_loss, epoch_val_loss))
 
         save_checkpoint({
-            'epoch': epoch + 1,
+            'epoch': epoch,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
             'train_log': epoch_losses,
@@ -341,7 +322,7 @@ async def run_training(file_path, device, checkpoint_path):
 def train_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, checkpoint_path = DEFAULT_AUTOENCODER_FILE):
     print('Train Autoencoder, Device:{}'.format(device))
     print()
-    plt.ion()
+    init_plot()
     result = asyncio.run(run_training(dataset_path, device, checkpoint_path))
     
     model, epoch_losses = result

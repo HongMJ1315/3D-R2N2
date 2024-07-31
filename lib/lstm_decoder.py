@@ -119,7 +119,6 @@ class CTNN3DDecoder(nn.Module):
         out = self.conv4(out)
         out = self.relu4(out)
         out = self.upsample4(out)
-        print(out.shape)
         return out
 
 # model = CTNN3DDecoder()
@@ -213,6 +212,7 @@ async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, tra
     train_loss.append(sum(train_logs) / len(train_logs))
     val_loss.append(sum(val_logs) / len(val_logs))
     
+    print(train_loss, val_loss)
     await plot_losses(train_loss, val_loss)
     
     return sum(train_logs) / len(train_logs), sum(val_logs) / len(val_logs)
@@ -233,8 +233,6 @@ async def run_training(file_path, device, checkpoint_path):
     for epoch in range(start_epoch, num_epochs):
         start = time.time()
         cnt = 0
-        train_loss = []
-        val_loss = []
         resume = (last_folder is not None)
         skip_cnt = 0
         renders = []
@@ -260,7 +258,7 @@ async def run_training(file_path, device, checkpoint_path):
                 renders.append(i)
                 voxels.append(voxel)
             cnt += 1
-            if(cnt >= 10):
+            if(cnt >= 1000):
                 end_io = time.time()
                 print(time.strftime("%H:%M:%S", time.localtime())) 
                 print("IO Time:{:.2f}".format(end_io-start_io))

@@ -9,5 +9,6 @@ import torch
 print(torch.__version__)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('Device:{}'.format(device))
-train_lstmdecoder(device, dataset_path=DEFAULT_ENCODED_DATASET_FOLDER, checkpoint_path=DEFAULT_LSTMDECODER_FILE)
+encode_image_dataset(device, model_file=DEFAULT_AUTOENCODER_FILE, image_folder=DEFAULT_RENDERING_DATASET_FOLDER, encoded_image_folder=DEFAULT_ENCODED_DATASET_FOLDER)
+binvox_dataset(binvox_folder=DEFAULT_BINVOX_DATASET_FOLDER, output_folder=DEFAULT_VOXEL_DATASET_FOLDER)
 print('Finish')

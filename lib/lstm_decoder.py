@@ -1,4 +1,5 @@
 # %%
+import asyncio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,7 +12,7 @@ from lib.image import load_encoded_data
 from lib.binvox import load_voxel_file
 from lib.curve import *
 from lib.config import *
-from lib.autoencoder import *
+import lib.autoencoder as ae
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import cv2
@@ -21,7 +22,7 @@ import numpy as np
 import time
 
 # %%
-LSTM_NEUROES = ENCODED_TENSOR_SIZE
+LSTM_NEUROES = ae.ENCODED_TENSOR_SIZE
 
 
 # %%
@@ -310,7 +311,8 @@ def train_lstmdecoder(device, dataset_path = DEFAULT_ENCODED_DATASET_FOLDER, che
     print("Start Training LSTMDecoder, Device:{}".format(device))
     print()
     
-    model, epoch_losses = run_training(dataset_path, device, checkpoint_path)
+    result = asyncio.run(run_training(dataset_path, device, checkpoint_path))
+    model, epoch_losses = result
     model.eval()
     torch.save(model.state_dict(), "model/lstmdecoder.pth")
     torch.save(model.lstm.state_dict(), "model/lstm.pth")

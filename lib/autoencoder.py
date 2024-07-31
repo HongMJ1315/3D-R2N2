@@ -271,7 +271,7 @@ async def run_training(file_path, device, checkpoint_path):
                     print("Error:{}".format(file_name))
                     continue
                 datas.append(img)
-                if(cnt >= 100):
+                if(cnt >= 1000):
                     end_io = time.time()
                     print(time.strftime("%H:%M:%S", time.localtime())) 
                     print('IO Time: {:.4f}'.format(end_io-start_io))
@@ -328,9 +328,9 @@ def train_autoencoder(device, dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, c
     model, epoch_losses = result
     model.eval()
     
-    torch.save(model.state_dict(), 'model.pth')
-    torch.save(model.encoder.state_dict(), 'encoder.pth')
-    torch.save(model.decoder.state_dict(), 'decoder.pth')
+    torch.save(model.state_dict(), 'model/autoencoder.pth')
+    torch.save(model.encoder.state_dict(), 'model/encoder.pth')
+    torch.save(model.decoder.state_dict(), 'model/decoder.pth')
 
 
     return model, epoch_losses

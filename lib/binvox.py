@@ -4,10 +4,8 @@ import cv2
 import json
 import lib.binvox_rw as binvox_rw
 import numpy as np
+from lib.config import *
 
-# %%
-DEFAULT_BINVOX_DATASET_FOLDER = "ShapeNetVox32"
-DEFAULT_VOXEL_DATASET_FOLDER = "dataset"
 
 # %%
 def read_binvox(file_path):

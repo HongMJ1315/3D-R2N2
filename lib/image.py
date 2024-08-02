@@ -6,6 +6,7 @@ from lib.autoencoder import *
 from lib.config import *
 import time
 
+PROCESS_IMAGE_AMOUNT = 30000
 def image_encoder(device, model, imges):
     model.eval()
     ret = []
@@ -33,7 +34,6 @@ def write_encoded_data(output_directory, label, data):
     with open(file_path, 'ab') as f:
         print('Save File:{}'.format(file_path))
         data.tofile(f)
-        print('Finish Save File:{}'.format(file_path))
     f.close()
     file_path = os.path.join(output_directory + label, 'count.txt')
     
@@ -59,7 +59,7 @@ def encode_image(image_directory, model_file, device, output_directory):
         start_io = time.time()
         for file in files:
             file_name = os.path.join(root, file)
-            label = file_name.split('/')[-3]
+            label = file_name.split('/')[-4] + "_" + file_name.split('/')[-3]
 
             if(file_name.split('.')[-1] != 'png'):
                 continue
@@ -70,7 +70,7 @@ def encode_image(image_directory, model_file, device, output_directory):
                 continue
             datas.append(img)
             labels.append(label)
-            if(cnt >= 1000):
+            if(cnt >= PROCESS_IMAGE_AMOUNT):
                 print("IO Time:{}".format(time.time() - start_io))
                 encoded_time = time.time()
                 datas = image_preprocessing(datas)
@@ -78,7 +78,7 @@ def encode_image(image_directory, model_file, device, output_directory):
                 for i, label in enumerate(labels):
                     data = result[i].astype(np.float32).reshape(1, -1)  # 確保數據類型為 float32
                     write_encoded_data(output_directory, label, data)
-                print("encode 1000 images, Time:{}".format(time.time() - encoded_time))
+                print("encode {} images, Time:{}".format(PROCESS_IMAGE_AMOUNT, time.time() - encoded_time))
                 datas = []
                 labels = []
                 cnt = 0

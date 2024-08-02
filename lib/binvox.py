@@ -20,7 +20,8 @@ def load_model_data(floder):
             file_name = os.path.join(root, file)
             if(file_name.split('.')[-1] != 'binvox'):
                 continue
-            label = file_name.split('/')[-2]
+            print(file_name)
+            label = file_name.split('/')[-3] + "_" + file_name.split('/')[-2]
             model = read_binvox(file_name)
             dataset.append((label, model))
     print("Data loaded")

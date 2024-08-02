@@ -236,6 +236,9 @@ async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, tra
 
 #%%
 async def run_training(file_path, device, checkpoint_path):
+    if(file_path[-1] != "/"):
+        file_path += "/"
+    
     model = Autoencoder()
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
@@ -259,6 +262,7 @@ async def run_training(file_path, device, checkpoint_path):
                     if last_file == os.path.join(root, file):
                         print('Resuming from {}, Skip {} Files'.format(last_file, skip_cnt))
                         resume = False
+                        last_file = None
                     skip_cnt += 1
                     continue
 

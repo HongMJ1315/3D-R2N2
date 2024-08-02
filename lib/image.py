@@ -6,7 +6,6 @@ from lib.autoencoder import *
 from lib.config import *
 import time
 
-PROCESS_IMAGE_AMOUNT = 30000
 def image_encoder(device, model, imges):
     model.eval()
     ret = []

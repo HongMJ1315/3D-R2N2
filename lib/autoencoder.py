@@ -275,7 +275,7 @@ async def run_training(file_path, device, checkpoint_path):
                     print("Error:{}".format(file_name))
                     continue
                 datas.append(img)
-                if(cnt >= 1000):
+                if(cnt >= DEFAULT_AUTOENCODER_TRAINING_IMAGE_AMOUNT):
                     end_io = time.time()
                     print(time.strftime("%H:%M:%S", time.localtime())) 
                     print('IO Time: {:.4f}'.format(end_io-start_io))

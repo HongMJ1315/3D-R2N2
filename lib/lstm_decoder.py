@@ -153,6 +153,8 @@ class TrainDataset(Dataset):
 async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, train_loss, val_loss):
     data_len = len(datas)
     train_data, val_data = random_split(datas, [int(data_len * 0.8), data_len - int(data_len * 0.8)])
+    train_data_len = len(train_data)
+    seg_train_data_len = round(train_data_len / 100)
     print("Epoch:{} Train Size:{} Val Size:{}".format(epoch, len(train_data), len(val_data)))
 
     train_loader = DataLoader(train_data, batch_size=1, shuffle=True)
@@ -165,6 +167,7 @@ async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, tra
     seq_len = 1
     start = time.time()
     model.train()
+    timer = time.time()
     for inputs, targets in train_loader:
         optimizer.zero_grad()
         inputs = inputs.to(device)
@@ -184,7 +187,9 @@ async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, tra
         loss.backward()
         optimizer.step()
         train_logs.append(loss.item())
-
+        if(len(train_logs) % seg_train_data_len == 0):
+            print("Epoch:{} Train Loss:{:.4f} Sub-epoch: {}% Time: {}".format(epoch, sum(train_logs) / len(train_logs), len(train_logs) / seg_train_data_len, time.time() - timer))
+            timer = time.time()
     model.eval()
     with torch.no_grad():
         for inputs, targets in val_loader:
@@ -212,7 +217,6 @@ async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, tra
     train_loss.append(sum(train_logs) / len(train_logs))
     val_loss.append(sum(val_logs) / len(val_logs))
     
-    print(train_loss, val_loss)
     await plot_losses(train_loss, val_loss)
     
     return sum(train_logs) / len(train_logs), sum(val_logs) / len(val_logs)
@@ -259,13 +263,12 @@ async def run_training(file_path, device, checkpoint_path):
             for i in render:
                 renders.append(i)
                 voxels.append(voxel)
-            print("folder: {}, render: {}".format(folder, len(renders)))
             
             cnt += 1
-            if(cnt >= 1000):
+            if(cnt >= DEFAULT_LSTMDECODER_TRAINING_IMAGE_AMOUNT):
                 end_io = time.time()
                 print(time.strftime("%H:%M:%S", time.localtime())) 
-                print("IO Time:{:.2f}".format(end_io-start_io))
+                print("IO Time:{:.4f}".format(end_io-start_io))
                 dataset = TrainDataset(renders, voxels)
                 await train_sub_epoch(epoch, dataset, model, criterion, optimizer, device, train_loss, val_loss)
                 renders = []
@@ -312,6 +315,7 @@ async def run_training(file_path, device, checkpoint_path):
 def train_lstmdecoder(device, dataset_path = DEFAULT_ENCODED_DATASET_FOLDER, checkpoint_path = DEFAULT_LSTMDECODER_FILE):
     print("Start Training LSTMDecoder, Device:{}".format(device))
     print()
+    init_plot()
     
     result = asyncio.run(run_training(dataset_path, device, checkpoint_path))
     model, epoch_losses = result

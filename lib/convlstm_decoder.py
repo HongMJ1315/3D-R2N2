@@ -61,9 +61,32 @@ class ConvLSTMCell(nn.Module):
         self.hidden_dim = hidden_dim
         self.kernel_size = kernel_size
         self.padding_size = (kernel_size[0] // 2, kernel_size[1] // 2, kernel_size[2] // 2)
+        self.bias = bias
+
+        self.conv_f = nn.Conv3d(in_channels=self.hidden_dim,
+                                out_channels=self.hidden_dim,
+                                kernel_size=self.kernel_size, 
+                                padding=self.padding_size, 
+                                bias=self.bias)
+        self.conv_i = nn.Conv3d(in_channels=self.hidden_dim,
+                                out_channels=self.hidden_dim,
+                                kernel_size=self.kernel_size, 
+                                padding=self.padding_size, 
+                                bias=self.bias)
+        self.conv_g = nn.Conv3d(in_channels=self.hidden_dim,
+                                out_channels=self.hidden_dim,
+                                kernel_size=self.kernel_size, 
+                                padding=self.padding_size,
+                                bias=self.bias)
+        self.conv_o = nn.Conv3d(in_channels=self.hidden_dim,
+                                out_channels=self.hidden_dim,
+                                kernel_size=self.kernel_size, 
+                                padding=self.padding_size,
+                                bias=self.bias)
+        
+        
         if any(k % 2 == 0 for k in kernel_size):
             raise ValueError("Only support odd kernel size")
-        self.bias = bias
         self.conv = nn.Conv3d(self.input_dim + self.hidden_dim, 
                               4 * self.hidden_dim,  # 4* 是因为后面输出时要切4片
                               self.kernel_size, 
@@ -81,17 +104,20 @@ class ConvLSTMCell(nn.Module):
         batch_size = input_tensor.size(0)
         depth, height, width = h_cur.size(2), h_cur.size(3), h_cur.size(4)
         input_fc = input_fc.view(batch_size, self.input_dim, depth, height, width)
-        
         combined = torch.cat((input_fc, h_cur), dim=1)
         combined_conv = self.conv(combined)
         cc_f, cc_i, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim, dim=1)
-
+        
+        cc_f = self.conv_f(cc_f)
+        cc_i = self.conv_i(cc_i)
+        cc_o = self.conv_o(cc_o)
+        cc_g = self.conv_g(cc_g)
+        
         f = torch.sigmoid(cc_f)
         i = torch.sigmoid(cc_i)
         o = torch.sigmoid(cc_o)
         g = torch.tanh(cc_g)
 
-        # print("f: {}, i: {}, o: {}, g: {}, c_cur: {}".format(f.shape, i.shape, o.shape, g.shape, c_cur.shape))
         c_next = f * c_cur + i * g
         h_next = o * torch.tanh(c_next)
 

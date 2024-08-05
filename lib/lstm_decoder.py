@@ -12,13 +12,14 @@ from lib.image import load_encoded_data
 from lib.binvox import load_voxel_file
 from lib.curve import *
 from lib.config import *
+from lib.gl import *
 import lib.autoencoder as ae
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import cv2
 import os
 import numpy as np
-
+import threading    
 import time
 
 # %%
@@ -93,7 +94,7 @@ class CTNN3DDecoder(nn.Module):
         self.upsample3 = nn.Upsample(scale_factor=2, mode='nearest')
         self.dropout3 = nn.Dropout3d(p=0.25)
         
-        self.conv4 = nn.ConvTranspose3d(in_channels=4, out_channels=4, kernel_size=3, stride=1, padding=1)
+        self.conv4 = nn.ConvTranspose3d(in_channels=4, out_channels=1, kernel_size=3, stride=1, padding=1)
         self.relu4 = nn.ReLU()
         self.upsample4 = nn.Upsample(size=(32, 32, 32), mode='nearest')
         
@@ -182,8 +183,13 @@ async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, tra
             input_t = inputs[:, t]
             decode_output, prev_output, h_0, c_0 = model(input_t, prev_output, h_0, c_0)
         
-        test_chennal = decode_output[:, 0]
-        loss = criterion(test_chennal , targets)
+        decode_output = decode_output.view(1, 32, 32, 32)
+        
+        decode_voxel = decode_output.cpu().detach().numpy()
+        original_voxel = targets.cpu().detach().numpy()
+        await update_voxel(decode_voxel[0], original_voxel[0])
+        
+        loss = criterion(decode_output , targets)
         loss.backward()
         optimizer.step()
         train_logs.append(loss.item())
@@ -205,8 +211,8 @@ async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, tra
                 input_t = inputs[:, t]
                 decode_output, prev_output, h_0, c_0 = model(input_t, prev_output, h_0, c_0)
         
-            test_chennal = decode_output[:, 0]
-            loss = criterion(test_chennal , targets)
+            decode_output = decode_output.view(1, 32, 32, 32)
+            loss = criterion(decode_output , targets)
             val_logs.append(loss.item())
             
     end = time.time()
@@ -255,8 +261,12 @@ async def run_training(file_path, device, checkpoint_path):
                 continue
             start_io = time.time()
             if(folder == ""): continue
-            render = load_encoded_data(root)
-            voxel = load_voxel_file(root + "/voxel.txt")
+            try:
+                render = load_encoded_data(root)
+                voxel = load_voxel_file(root + "/voxel.txt")
+            except:
+                print("Error:{}".format(root))
+                continue
             voxel.reshape(32, 32, 32)
             if render is None or voxel is None:
                 continue             
@@ -317,7 +327,10 @@ def train_lstmdecoder(device, dataset_path = DEFAULT_ENCODED_DATASET_FOLDER, che
     print()
     init_plot()
     
+    gl_thread = threading.Thread(target=gl_main)
+    gl_thread.start()
     result = asyncio.run(run_training(dataset_path, device, checkpoint_path))
+    gl_thread.join()
     model, epoch_losses = result
     model.eval()
     torch.save(model.state_dict(), "model/lstmdecoder.pth")

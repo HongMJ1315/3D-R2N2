@@ -418,13 +418,12 @@ def show_loss_curve(checkpoint_path = DEFAULT_AUTOENCODER_FILE, device = DEFAULT
         plt.savefig('loss_curve.png')
 # %%
 if __name__ == '__main__':
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.isㄇavailable() else 'cpu')
     print('Device:{}'.format(device))
     # model, train_log = train_autoencoder(device)
     test_autoencoder(device, dataset_path="test", checkpoint_path="autoencoder.pth.tar", result_path="results", save_result=True)
     # encode_image_dataset(device, model_file='model3/checkpoint.pth.tar', image_folder='ShapeNetRendering', encoded_image_folder='dataset')
     print('Finish')
-
 
 
 # %%

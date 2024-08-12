@@ -2,8 +2,9 @@ import torch
 import torch.nn as nn
 import os
 from lib.checkpoint import load_checkpoint
-from lib.autoencoder import *
 from lib.config import *
+from lib.binvox import *
+from lib.autoencoder import Autoencoder, image_preprocessing
 import time
 
 def image_encoder(device, model, imges):
@@ -109,3 +110,27 @@ def load_encoded_data(file_path):
     
     data = np.fromfile(file_path + '/encoded.bin', dtype=np.float32).reshape(count, -1)
     return data    
+
+def read_rendering_and_voxel(voxel, rendering_root):
+    voxel_data = read_binvox(voxel)
+    rendering_data = []
+    folder_path = voxel.split('/')
+    folder_path = folder_path[-3] + '/' + folder_path[-2] + '/'
+    folder_path = os.path.join(rendering_root, folder_path)
+    voxel_datas = []
+    try:
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                file_name = os.path.join(root, file)
+                if(file_name.split('.')[-1] != 'png'):
+                    continue
+                img = cv2.imread(file_name, cv2.IMREAD_UNCHANGED)
+                rendering_data.append(img)
+        rendering_data = image_preprocessing(rendering_data).numpy()
+        for i in range(len(rendering_data)):
+            voxel_datas.append(voxel_data)
+        voxel_datas = np.array(voxel_datas)
+        return voxel_datas, rendering_data
+    except:
+        print('Error:{}'.format(folder_path))
+        return None, None    

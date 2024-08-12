@@ -3,7 +3,6 @@ import OpenGL.GL as GL
 import OpenGL.GLUT as GLUT
 import OpenGL.GLU as GLU
 import glfw
-from lib.binvox import read_binvox
 import numpy as np
 import asyncio
 import ctypes
@@ -17,9 +16,10 @@ predicted_voxel = None
 vertex_shader_source = """
 #version 330 core
 layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aNormal;
+layout (location = 1) in vec2 aTexCoord;  // 修改为vec2
 
 out vec3 FragPos;
+out vec2 TexCoord;  // 输出纹理坐标
 out vec3 Normal;
 
 uniform mat4 model;
@@ -29,9 +29,11 @@ uniform mat4 projection;
 void main()
 {
     FragPos = vec3(model * vec4(aPos, 1.0));
-    Normal = mat3(transpose(inverse(model))) * aNormal;  
+    TexCoord = aTexCoord;  // 传递纹理坐标
+    Normal = mat3(transpose(inverse(model))) * vec3(0.0, 0.0, 1.0);  
     gl_Position = projection * view * vec4(FragPos, 1.0);
 }
+
 """
 
 # 定義片段著色器
@@ -41,19 +43,24 @@ out vec4 FragColor;
 
 in vec3 FragPos;
 in vec3 Normal;
+in vec2 TexCoord;
 
 uniform vec3 lightPos;
 uniform vec3 viewPos;
 uniform vec3 lightColor;
 uniform vec3 objectColor;
-uniform bool isEdge;  // 新增的 uniform 變量
+uniform sampler2D texture1;
+uniform bool isEdge;
+uniform bool isTextured;
 
 void main()
 {
-    if (isEdge) {
-        FragColor = vec4(1.0, 1.0, 1.0, 1.0);  // 白色邊緣
+    if (isTextured) {
+        FragColor = texture(texture1, TexCoord);  // 使用纹理坐标进行纹理采样
+    } else if (isEdge) {
+        FragColor = vec4(1.0, 1.0, 1.0, 1.0);  // 白色边缘
     } else {
-        // 原有的光照計算
+        // 原始的光照计算逻辑
         float ambientStrength = 0.5;
         vec3 ambient = ambientStrength * lightColor;
         
@@ -68,15 +75,11 @@ void main()
         float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
         vec3 specular = specularStrength * spec * lightColor;  
         
-        float cutOff = cos(radians(12.5));
-        float outerCutOff = cos(radians(17.5));
-        float epsilon = cutOff - outerCutOff;
-        float intensity = clamp((dot(lightDir, vec3(0.0, -1.0, 0.0)) - outerCutOff) / epsilon, 0.0, 1.0);
-        
-        vec3 result = (ambient + intensity * (diffuse + specular)) * objectColor;
+        vec3 result = (ambient + diffuse + specular) * objectColor;
         FragColor = vec4(result, 1.0);
     }
 }
+
 """
 
 # %%
@@ -84,6 +87,29 @@ async def update_voxel(predicted, original):
     global original_voxel, predicted_voxel
     original_voxel = original
     predicted_voxel = predicted
+
+# %%
+from PIL import Image
+
+def load_texture(path):
+    image = Image.open(path)
+    image = image.transpose(Image.FLIP_TOP_BOTTOM)
+    img_data = image.convert("RGBA").tobytes()
+    
+    texture_id = GL.glGenTextures(1)
+    GL.glBindTexture(GL.GL_TEXTURE_2D, texture_id)
+    
+    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, image.width, image.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
+    GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
+    
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR)
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+    
+    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+    
+    return texture_id
 
 # %%
 def create_shader_program(vertex_shader_source, fragment_shader_source):
@@ -128,6 +154,73 @@ def check_gl_error():
     error = GL.glGetError()
     if error != GL.GL_NO_ERROR:
         print(f"GL Error: {error}")
+        
+# %%
+def setup_quad():
+    vertices = np.array([
+        # Positions        # Texture Coords
+        -0.5, -0.5, 0.0,   0.0, 0.0,
+         0.5, -0.5, 0.0,   1.0, 0.0,
+         0.5,  0.5, 0.0,   1.0, 1.0,
+        -0.5,  0.5, 0.0,   0.0, 1.0,
+    ], dtype=np.float32)
+    
+    indices = np.array([
+        0, 1, 2,
+        2, 3, 0,
+    ], dtype=np.uint32)
+
+    vao = GL.glGenVertexArrays(1)
+    vbo = GL.glGenBuffers(1)
+    ebo = GL.glGenBuffers(1)
+    
+    GL.glBindVertexArray(vao)
+    
+    GL.glBindBuffer(GL.GL_ARRAY_BUFFER, vbo)
+    GL.glBufferData(GL.GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL.GL_STATIC_DRAW)
+    
+    GL.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, ebo)
+    GL.glBufferData(GL.GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL.GL_STATIC_DRAW)
+    
+    GL.glVertexAttribPointer(0, 3, GL.GL_FLOAT, GL.GL_FALSE, 5 * 4, ctypes.c_void_p(0))
+    GL.glEnableVertexAttribArray(0)
+    
+    GL.glVertexAttribPointer(1, 2, GL.GL_FLOAT, GL.GL_FALSE, 5 * 4, ctypes.c_void_p(3 * 4))
+    GL.glEnableVertexAttribArray(1)
+    
+    GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
+    GL.glBindVertexArray(0)
+    
+    return vao
+
+def draw_quad(shader_program, vao, texture, position, scale, rotation):
+    GL.glUseProgram(shader_program)
+    
+    GL.glActiveTexture(GL.GL_TEXTURE0)  # 使用纹理单元 0
+    GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "texture1"), 0)  # 指定纹理单元 0
+
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), True)
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isEdge"), False)  # 确保isEdge为False
+    
+    model = glm.mat4(1.0)
+    model = glm.translate(model, glm.vec3(*position))
+    model = glm.scale(model, glm.vec3(*scale))
+    model = glm.rotate(model, glm.radians(rotation[0]), glm.vec3(1.0, 0.0, 0.0))
+    model = glm.rotate(model, glm.radians(rotation[1]), glm.vec3(0.0, 1.0, 0.0))
+    model = glm.rotate(model, glm.radians(rotation[2]), glm.vec3(0.0, 0.0, 1.0))
+    
+    modelLoc = GL.glGetUniformLocation(shader_program, "model")
+    GL.glUniformMatrix4fv(modelLoc, 1, GL.GL_FALSE, glm.value_ptr(model))
+    
+    GL.glBindVertexArray(vao)
+    GL.glDrawElements(GL.GL_TRIANGLES, 6, GL.GL_UNSIGNED_INT, None)
+    GL.glBindVertexArray(0)
+    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+    
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), False)
+
+
 # %%
 def setup_cube():
     vertices = np.array([
@@ -258,6 +351,10 @@ def gl_main():
     
     shader_program = create_shader_program(vertex_shader_source, fragment_shader_source)
     cube_vao, cube_vbo = setup_cube()
+    quad_vao = setup_quad()  # Setup the quad
+    
+    texture_id = load_texture("00.png")  # Load texture
+    print(texture_id)
     
     while not glfw.window_should_close(window):
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
@@ -286,6 +383,8 @@ def gl_main():
         
         # Draw predicted voxel
         draw_model(shader_program, cube_vao, cube_vbo, predicted_voxel, model, (0.0, 0.0, 1.0), (0, 0, 40))
+        # Draw 2D Quad with texture
+        # draw_quad(shader_program, quad_vao, texture_id, position=(0, 0, 0), scale=(40.0, 40.0, 1.0), rotation=(0, 0, 0))
         
         glfw.swap_buffers(window)
         glfw.poll_events()
@@ -293,3 +392,6 @@ def gl_main():
         check_gl_error()
     
     glfw.terminate()
+
+if(__name__ == "__main__"):
+    gl_main()

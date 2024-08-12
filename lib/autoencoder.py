@@ -22,33 +22,25 @@ import time
 # %% 
 ENCODED_TENSOR_SIZE = 3000
 # %%
-class EarlyStopping:
-    def __init__(self, patience=5, min_delta=0):
-        self.patience = patience
-        self.min_delta = min_delta
-        self.best_loss = None
-        self.counter = 0
+def image_preprocessing(images):
+    datas = []
+    for img in images:
+        # 取得圖像的邊緣
+        blurred = cv2.GaussianBlur(img, (5, 5), 0)
+        gray = cv2.cvtColor(blurred, cv2.COLOR_RGB2GRAY)
+        edge = cv2.Canny(gray, 70, 210,apertureSize=3)
 
-    def __call__(self, val_loss):
-        if self.best_loss is None:
-            self.best_loss = val_loss
-            return False
-
-        if val_loss < self.best_loss - self.min_delta:
-            self.best_loss = val_loss
-            self.counter = 0
-            return False
-        else:
-            self.counter += 1
-            if self.counter >= self.patience:
-                return True
-            return False
-
-
+        img = cv2.merge((img[:,:,0], img[:,:,1], img[:,:,2], img[:,:,3], edge))
+        
+        img = img.transpose(2, 0, 1)
+        datas.append(img)
+    datas = np.array(datas, dtype=np.float32) / 255
+    datas = torch.from_numpy(datas)
+    return datas
 # %%
-class CNNEecoder(nn.Module):
+class CNNEncoder(nn.Module):
     def __init__(self):
-        super(CNNEecoder, self).__init__()
+        super(CNNEncoder, self).__init__()
         # Input Layer 1 
         self.cnn1 = nn.Conv2d(in_channels=5, out_channels=48, 
                               kernel_size=5, stride=1, padding=2)
@@ -162,7 +154,7 @@ class CNNDecoder(nn.Module):
 class Autoencoder(nn.Module):
     def __init__(self):
         super(Autoencoder, self).__init__()
-        self.encoder = CNNEecoder()
+        self.encoder = CNNEncoder()
         self.decoder = CNNDecoder()
         
     def forward(self, x):
@@ -171,22 +163,6 @@ class Autoencoder(nn.Module):
         return x
 
 
-# %%
-def image_preprocessing(images):
-    datas = []
-    for img in images:
-        # 取得圖像的邊緣
-        blurred = cv2.GaussianBlur(img, (5, 5), 0)
-        gray = cv2.cvtColor(blurred, cv2.COLOR_RGB2GRAY)
-        edge = cv2.Canny(gray, 70, 210,apertureSize=3)
-
-        img = cv2.merge((img[:,:,0], img[:,:,1], img[:,:,2], img[:,:,3], edge))
-        
-        img = img.transpose(2, 0, 1)
-        datas.append(img)
-    datas = np.array(datas, dtype=np.float32) / 255
-    datas = torch.from_numpy(datas)
-    return datas
 
 #%%
 

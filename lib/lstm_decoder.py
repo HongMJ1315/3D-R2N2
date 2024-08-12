@@ -24,32 +24,6 @@ import time
 
 # %%
 LSTM_NEUROES = ae.ENCODED_TENSOR_SIZE
-
-
-# %%
-class EarlyStopping:
-    def __init__(self, patience=5, min_delta=0):
-        self.patience = patience
-        self.min_delta = min_delta
-        self.best_loss = None
-        self.counter = 0
-
-    def __call__(self, val_loss):
-        if self.best_loss is None:
-            self.best_loss = val_loss
-            return False
-
-        if val_loss < self.best_loss - self.min_delta:
-            self.best_loss = val_loss
-            self.counter = 0
-            return False
-        else:
-            self.counter += 1
-            if self.counter >= self.patience:
-                return True
-            return False
-
-
 # %%
 class LSTM(nn.Module):
     def __init__(self, input_size=LSTM_NEUROES, hidden_size=LSTM_NEUROES, num_layers=2, output_size=LSTM_NEUROES):
@@ -98,6 +72,7 @@ class CTNN3DDecoder(nn.Module):
         self.relu4 = nn.ReLU()
         self.upsample4 = nn.Upsample(size=(32, 32, 32), mode='nearest')
         
+        self.relu5 = nn.ReLU()
     def forward(self, x):
         out = self.fc(x)
         out = out.view(1, 16, 8, 8, 8)
@@ -120,6 +95,8 @@ class CTNN3DDecoder(nn.Module):
         out = self.conv4(out)
         out = self.relu4(out)
         out = self.upsample4(out)
+        
+        out = self.relu5(out)
         return out
 
 # model = CTNN3DDecoder()

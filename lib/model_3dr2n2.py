@@ -95,7 +95,8 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         decode_voxel = decode_output.cpu().detach().numpy()
         original_voxel = targets.cpu().detach().numpy()
         image = image.cpu().detach().numpy()
-        await update_voxel(decode_voxel[0], original_voxel[0])
+        # await update_voxel(decode_voxel[0], original_voxel[0])
+        update_voxel(decode_voxel[0], original_voxel[0], image)
         
         loss = criterion(decode_output, targets)
         # 輸出decode_output和targets 的最大最小值
@@ -210,7 +211,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                     
         if(cnt > 0):
             dataset = TrainDataset(renders, voxels)
-            await train_sub_epoch(epoch, dataset, model, criterion, optimizer, device, train_loss, val_loss)
+            await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss)
             renders = []
             voxels = []
             cnt = 0
@@ -239,12 +240,16 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
 def train_3dr2n2(device, voxel_dataset_path = DEFAULT_BINVOX_DATASET_FOLDER,
                  rendering_dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, 
                  checkpoint_path = DEFAULT_3DR2N2_FILE):
+    global gl_task_queue
     print('Start Training 3D-R2N2, Device:{}'.format(device))
     print()
     init_plot()
+
+    gl_task_queue = queue.Queue()  # 初始化任务队列
     
     gl_thread = threading.Thread(target=gl_main)
     gl_thread.start()
+    
     result = asyncio.run(run_training(voxel_dataset_path, rendering_dataset_path, device, checkpoint_path))
     gl_thread.join()
     model, epoch_losses = result
@@ -253,3 +258,4 @@ def train_3dr2n2(device, voxel_dataset_path = DEFAULT_BINVOX_DATASET_FOLDER,
     torch.save(model.lstm.state_dict(), "model/lstm.pth")
     torch.save(model.decoder.state_dict(), "model/ctnn3d.pth")
     return model, epoch_losses
+

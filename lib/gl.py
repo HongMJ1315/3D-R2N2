@@ -7,10 +7,15 @@ import numpy as np
 import asyncio
 import ctypes
 import glm
+import queue
+import threading
+from PIL import Image
 
 
 original_voxel = None
 predicted_voxel = None
+texture_id = None
+gl_task_queue = queue.Queue()
 
 # 定義頂點著色器
 vertex_shader_source = """
@@ -83,16 +88,50 @@ void main()
 """
 
 # %%
-async def update_voxel(predicted, original):
-    global original_voxel, predicted_voxel
+def update_voxel(predicted, original, texture):
+    global original_voxel, predicted_voxel, gl_task_queue
     original_voxel = original
     predicted_voxel = predicted
 
-# %%
-from PIL import Image
+    # 将 numpy 数组转换为图像
+    texture = texture.transpose(1, 2, 0)
+    texture = np.array(np.uint8(texture * 255))
+    image = Image.fromarray(texture, 'RGBA').transpose(Image.FLIP_TOP_BOTTOM)
+    img_data = image.tobytes()
 
+    # 将任务添加到队列，以便在主线程上执行 OpenGL 操作
+    gl_task_queue.put(lambda: update_texture(img_data, image.width, image.height))
+
+def update_texture(img_data, width, height):
+    global texture_id
+
+    # 确保当前 OpenGL 上下文存在
+    current_context = glfw.get_current_context()
+    if not current_context:
+        raise RuntimeError("No current OpenGL context")
+    
+    # 绑定纹理并检查错误
+    GL.glBindTexture(GL.GL_TEXTURE_2D, texture_id)
+    error = GL.glGetError()
+    if error != GL.GL_NO_ERROR:
+        print(f"Error before glTexImage2D: {error}")
+    
+    # 使用图像数据更新纹理内容
+    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, width, height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
+    
+    error = GL.glGetError()
+    if error != GL.GL_NO_ERROR:
+        print(f"Error after glTexImage2D: {error}")
+        
+    GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
+    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+
+
+# %%
 def load_texture(path):
+    global texture_id
     image = Image.open(path)
+    print("max: {}, min: {}".format(np.max(np.array(image)), np.min(np.array(image))))
     image = image.transpose(Image.FLIP_TOP_BOTTOM)
     img_data = image.convert("RGBA").tobytes()
     
@@ -109,7 +148,6 @@ def load_texture(path):
     
     GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
     
-    return texture_id
 
 # %%
 def create_shader_program(vertex_shader_source, fragment_shader_source):
@@ -344,21 +382,25 @@ def draw_model(shader_program, vao, vbo, voxel, model, color, loc):
                     
 # %%
 def gl_main():
-    global original_voxel, predicted_voxel
+    global gl_task_queue
     window = gl_init()
     if not window:
         return
-    
+
     shader_program = create_shader_program(vertex_shader_source, fragment_shader_source)
     cube_vao, cube_vbo = setup_cube()
-    quad_vao = setup_quad()  # Setup the quad
+    quad_vao = setup_quad()
     
-    texture_id = load_texture("00.png")  # Load texture
+    load_texture("00.png")  # Load texture
     print(texture_id)
     
     while not glfw.window_should_close(window):
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
         
+        # 处理队列中的 OpenGL 任务
+        while not gl_task_queue.empty():
+            task = gl_task_queue.get()
+            task()
         GL.glViewport(0, 0, 800, 600)
         
         view = glm.lookAt(glm.vec3(50.0, 50.0, 50.0), glm.vec3(0.0, 0.0, 10.0), glm.vec3(0.0, 1.0, 0.0))
@@ -384,7 +426,7 @@ def gl_main():
         # Draw predicted voxel
         draw_model(shader_program, cube_vao, cube_vbo, predicted_voxel, model, (0.0, 0.0, 1.0), (0, 0, 40))
         # Draw 2D Quad with texture
-        # draw_quad(shader_program, quad_vao, texture_id, position=(0, 0, 0), scale=(40.0, 40.0, 1.0), rotation=(0, 0, 0))
+        draw_quad(shader_program, quad_vao, texture_id, position=(0, 0, 0), scale=(40.0, 40.0, 1.0), rotation=(0, 0, 0))
         
         glfw.swap_buffers(window)
         glfw.poll_events()

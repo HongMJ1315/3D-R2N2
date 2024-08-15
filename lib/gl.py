@@ -197,10 +197,10 @@ def check_gl_error():
 def setup_quad():
     vertices = np.array([
         # Positions        # Texture Coords
-        -0.5, -0.5, 0.0,   0.0, 0.0,
-         0.5, -0.5, 0.0,   1.0, 0.0,
-         0.5,  0.5, 0.0,   1.0, 1.0,
-        -0.5,  0.5, 0.0,   0.0, 1.0,
+        -1.0, -1.0, 0.0,   0.0, 0.0,
+         1.0, -1.0, 0.0,   1.0, 0.0,
+         1.0,  1.0, 0.0,   1.0, 1.0,
+        -1.0,  1.0, 0.0,   0.0, 1.0,
     ], dtype=np.float32)
     
     indices = np.array([
@@ -220,9 +220,11 @@ def setup_quad():
     GL.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, ebo)
     GL.glBufferData(GL.GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL.GL_STATIC_DRAW)
     
+    # Position attribute
     GL.glVertexAttribPointer(0, 3, GL.GL_FLOAT, GL.GL_FALSE, 5 * 4, ctypes.c_void_p(0))
     GL.glEnableVertexAttribArray(0)
     
+    # Texture coord attribute
     GL.glVertexAttribPointer(1, 2, GL.GL_FLOAT, GL.GL_FALSE, 5 * 4, ctypes.c_void_p(3 * 4))
     GL.glEnableVertexAttribArray(1)
     
@@ -230,35 +232,48 @@ def setup_quad():
     GL.glBindVertexArray(0)
     
     return vao
-
-def draw_quad(shader_program, vao, texture, position, scale, rotation):
+def draw_quad(shader_program, vao, texture, window_width, window_height):
     GL.glUseProgram(shader_program)
     
-    GL.glActiveTexture(GL.GL_TEXTURE0)  # 使用纹理单元 0
+    GL.glActiveTexture(GL.GL_TEXTURE0)
     GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
-    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "texture1"), 0)  # 指定纹理单元 0
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "texture1"), 0)
 
     GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), True)
-    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isEdge"), False)  # 确保isEdge为False
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isEdge"), False)
     
+    # 调整视口大小和位置（左上角，宽度和高度为窗口的1/3）
+    quad_width = window_width // 3
+    quad_height = window_height // 3
+    GL.glViewport(0, window_height - quad_height, quad_width, quad_height)
+    
+    # 调整正交投影矩阵
+    ortho = glm.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
+    projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
+    GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(ortho))
+    
+    # 调整模型矩阵（移动到左上角并缩小）
     model = glm.mat4(1.0)
-    model = glm.translate(model, glm.vec3(*position))
-    model = glm.scale(model, glm.vec3(*scale))
-    model = glm.rotate(model, glm.radians(rotation[0]), glm.vec3(1.0, 0.0, 0.0))
-    model = glm.rotate(model, glm.radians(rotation[1]), glm.vec3(0.0, 1.0, 0.0))
-    model = glm.rotate(model, glm.radians(rotation[2]), glm.vec3(0.0, 0.0, 1.0))
-    
+    model = glm.translate(model, glm.vec3(0, 0, 0.0))  # 移动到左上角
+    # model = glm.scale(model, glm.vec3(1, 1, 1.0))  # 缩小一半
     modelLoc = GL.glGetUniformLocation(shader_program, "model")
     GL.glUniformMatrix4fv(modelLoc, 1, GL.GL_FALSE, glm.value_ptr(model))
     
-    GL.glBindVertexArray(vao)
+    # 视图矩阵保持不变
+    view = glm.mat4(1.0)
+    viewLoc = GL.glGetUniformLocation(shader_program, "view")
+    GL.glUniformMatrix4fv(viewLoc, 1, GL.GL_FALSE, glm.value_ptr(view))
+    
+    GL.glBindVertexArray(vao)   
     GL.glDrawElements(GL.GL_TRIANGLES, 6, GL.GL_UNSIGNED_INT, None)
     GL.glBindVertexArray(0)
-    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
     
+    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
     GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), False)
-
-
+    
+    # 恢复原始视口
+    GL.glViewport(0, 0, window_width, window_height)
+        
 # %%
 def setup_cube():
     vertices = np.array([
@@ -426,8 +441,8 @@ def gl_main():
         # Draw predicted voxel
         draw_model(shader_program, cube_vao, cube_vbo, predicted_voxel, model, (0.0, 0.0, 1.0), (0, 0, 40))
         # Draw 2D Quad with texture
-        draw_quad(shader_program, quad_vao, texture_id, position=(0, 0, 0), scale=(40.0, 40.0, 1.0), rotation=(0, 0, 0))
-        
+        window_width, window_height = glfw.get_framebuffer_size(window)
+        draw_quad(shader_program, quad_vao, texture_id, window_width, window_height)        
         glfw.swap_buffers(window)
         glfw.poll_events()
         

@@ -56,7 +56,7 @@ class Model3DR2N2(nn.Module):
         return out, prev_out, h_0, c_0
     
 # %% 
-async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, train_loss, val_loss):
+async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, train_loss, val_loss, epoch_loss):
     data_len = len(datas)
     train_data, val_data = random_split(datas, [int(data_len*0.8), data_len-int(data_len*0.8)])
     train_data_len = len(train_data)
@@ -140,7 +140,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
     train_loss.append(sum(train_logs) / len(train_logs))
     val_loss.append(sum(val_logs) / len(val_logs))
     
-    await plot_losses(train_loss, val_loss)
+    await plot_losses(train_loss, val_loss, epoch_loss)
     
     return sum(train_logs) / len(train_logs), sum(val_logs) / len(val_logs)
 
@@ -154,6 +154,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
     num_epochs = 100
     
     start_epoch, epoch_losses, last_folder, train_loss, val_loss = load_checkpoint(checkpoint_path, model, optimizer, device)
+    await plot_losses(train_loss, val_loss, epoch_losses)
 
     model.to(device)
     model.train()
@@ -194,7 +195,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                     print(time.strftime("%H:%M:%S", time.localtime())) 
                     print('IO Time: {:.4f}'.format(end_io-start_io)) 
                     dataset = TrainDataset(renders, voxels)
-                    await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss)
+                    await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses)
                     renders = []
                     voxels = []
                     cnt = 0
@@ -211,7 +212,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                     
         if(cnt > 0):
             dataset = TrainDataset(renders, voxels)
-            await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss)
+            await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses)
             renders = []
             voxels = []
             cnt = 0
@@ -230,6 +231,8 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
             'train_loss': train_loss,
             'val_loss': val_loss,
         }, filename = checkpoint_path)
+        
+        await plot_losses(train_loss, val_loss, epoch_losses)
         
         if early_stopping(epoch_val_loss):
             print("Early Stopping at Epoch:{}".format(epoch))

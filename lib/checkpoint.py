@@ -40,7 +40,7 @@ def load_checkpoint(filename, model, optimizer, device):
         last_file = checkpoint.get('last_file', None)
         train_loss = checkpoint.get('train_loss', [])
         val_loss = checkpoint.get('val_loss', [])
-        print(train_loss, val_loss)
+        print(train_loss, val_loss, epoch_losses, sep='\n')
         print(f"Loaded checkpoint '{filename}' (epoch {start_epoch})")
         return start_epoch, epoch_losses, last_file, train_loss, val_loss
     else:

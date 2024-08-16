@@ -14,7 +14,7 @@ from PIL import Image
 
 original_voxel = None
 predicted_voxel = None
-texture_id = None
+texture_ids = [None, None]
 gl_task_queue = queue.Queue()
 
 # 定義頂點著色器
@@ -88,41 +88,38 @@ void main()
 """
 
 # %%
-def update_voxel(predicted, original, texture):
+def update_voxel(predicted, original, texture, texture2):
     global original_voxel, predicted_voxel, gl_task_queue
     original_voxel = original
     predicted_voxel = predicted
 
-    # 将 numpy 数组转换为图像
+    # 處理第一個紋理
     texture = texture.transpose(1, 2, 0)
     texture = np.array(np.uint8(texture * 255))
     image = Image.fromarray(texture, 'RGBA').transpose(Image.FLIP_TOP_BOTTOM)
     img_data = image.tobytes()
+    
+    # 處理第二個紋理
+    texture2 = texture2.transpose(1, 2, 0)
+    texture2 = np.array(np.uint8(texture2 * 255))
+    texture2 = np.stack([texture2, texture2, texture2, np.ones_like(texture2) * 255], axis=-1)
+    image2 = Image.fromarray(texture2, 'RGBA').transpose(Image.FLIP_TOP_BOTTOM)
+    img_data2 = image2.tobytes()
 
-    # 将任务添加到队列，以便在主线程上执行 OpenGL 操作
-    gl_task_queue.put(lambda: update_texture(img_data, image.width, image.height))
 
-def update_texture(img_data, width, height):
-    global texture_id
+    # 將兩個紋理的更新任務添加到隊列
+    gl_task_queue.put(lambda: update_texture(img_data, image.width, image.height, 0))
+    gl_task_queue.put(lambda: update_texture(img_data2, image2.width, image2.height, 1))
+    
+def update_texture(img_data, width, height, index):
+    global texture_ids
 
-    # 确保当前 OpenGL 上下文存在
     current_context = glfw.get_current_context()
     if not current_context:
         raise RuntimeError("No current OpenGL context")
     
-    # 绑定纹理并检查错误
-    GL.glBindTexture(GL.GL_TEXTURE_2D, texture_id)
-    error = GL.glGetError()
-    if error != GL.GL_NO_ERROR:
-        print(f"Error before glTexImage2D: {error}")
-    
-    # 使用图像数据更新纹理内容
+    GL.glBindTexture(GL.GL_TEXTURE_2D, texture_ids[index])
     GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, width, height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
-    
-    error = GL.glGetError()
-    if error != GL.GL_NO_ERROR:
-        print(f"Error after glTexImage2D: {error}")
-        
     GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
     GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
 
@@ -232,7 +229,8 @@ def setup_quad():
     GL.glBindVertexArray(0)
     
     return vao
-def draw_quad(shader_program, vao, texture, window_width, window_height):
+
+def draw_quad(shader_program, vao, texture, window_width, window_height, position):
     GL.glUseProgram(shader_program)
     
     GL.glActiveTexture(GL.GL_TEXTURE0)
@@ -242,24 +240,23 @@ def draw_quad(shader_program, vao, texture, window_width, window_height):
     GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), True)
     GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isEdge"), False)
     
-    # 调整视口大小和位置（左上角，宽度和高度为窗口的1/3）
     quad_width = window_width // 3
     quad_height = window_height // 3
-    GL.glViewport(0, window_height - quad_height, quad_width, quad_height)
     
-    # 调整正交投影矩阵
+    if position == "top_left":
+        GL.glViewport(0, window_height - quad_height, quad_width, quad_height)
+    elif position == "center":
+        GL.glViewport(quad_width, window_height - quad_height, quad_width, quad_height)
+    
     ortho = glm.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
     projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
     GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(ortho))
     
-    # 调整模型矩阵（移动到左上角并缩小）
     model = glm.mat4(1.0)
-    model = glm.translate(model, glm.vec3(0, 0, 0.0))  # 移动到左上角
-    # model = glm.scale(model, glm.vec3(1, 1, 1.0))  # 缩小一半
+    model = glm.translate(model, glm.vec3(0, 0, 0.0))
     modelLoc = GL.glGetUniformLocation(shader_program, "model")
     GL.glUniformMatrix4fv(modelLoc, 1, GL.GL_FALSE, glm.value_ptr(model))
     
-    # 视图矩阵保持不变
     view = glm.mat4(1.0)
     viewLoc = GL.glGetUniformLocation(shader_program, "view")
     GL.glUniformMatrix4fv(viewLoc, 1, GL.GL_FALSE, glm.value_ptr(view))
@@ -271,7 +268,6 @@ def draw_quad(shader_program, vao, texture, window_width, window_height):
     GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
     GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), False)
     
-    # 恢复原始视口
     GL.glViewport(0, 0, window_width, window_height)
         
 # %%
@@ -406,8 +402,8 @@ def gl_main():
     cube_vao, cube_vbo = setup_cube()
     quad_vao = setup_quad()
     
-    load_texture("00.png")  # Load texture
-    print(texture_id)
+    texture_ids[0] = GL.glGenTextures(1)
+    texture_ids[1] = GL.glGenTextures(1)
     
     while not glfw.window_should_close(window):
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
@@ -418,7 +414,7 @@ def gl_main():
             task()
         GL.glViewport(0, 0, 800, 600)
         
-        view = glm.lookAt(glm.vec3(50.0, 50.0, 50.0), glm.vec3(0.0, 0.0, 10.0), glm.vec3(0.0, 1.0, 0.0))
+        view = glm.lookAt(glm.vec3(50.0, 50.0, 50.0), glm.vec3(-5.0, 0.0, 10.0), glm.vec3(0.0, 1.0, 0.0))
         projection = glm.perspective(glm.radians(45.0), 800.0 / 600.0, 0.1, 100.0)
         
         GL.glUseProgram(shader_program)
@@ -442,7 +438,8 @@ def gl_main():
         draw_model(shader_program, cube_vao, cube_vbo, predicted_voxel, model, (0.0, 0.0, 1.0), (0, 0, 40))
         # Draw 2D Quad with texture
         window_width, window_height = glfw.get_framebuffer_size(window)
-        draw_quad(shader_program, quad_vao, texture_id, window_width, window_height)        
+        draw_quad(shader_program, quad_vao, texture_ids[0], window_width, window_height, "top_left")
+        draw_quad(shader_program, quad_vao, texture_ids[1], window_width, window_height, "center")
         glfw.swap_buffers(window)
         glfw.poll_events()
         

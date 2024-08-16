@@ -86,6 +86,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         
         inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
         image = inputs[:, 0, 0:4, :, :].view(4, 137, 137)
+        edge = inputs[:, 0, 4, :, :].view(1, 137, 137)
         for t in range(seq_len):
             input = inputs[:, t, :, :, :]
             decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
@@ -95,16 +96,10 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         decode_voxel = decode_output.cpu().detach().numpy()
         original_voxel = targets.cpu().detach().numpy()
         image = image.cpu().detach().numpy()
-        # await update_voxel(decode_voxel[0], original_voxel[0])
-        update_voxel(decode_voxel[0], original_voxel[0], image)
+        edge = edge.cpu().detach().numpy()
+        update_voxel(decode_voxel[0], original_voxel[0], image, edge)
         
         loss = criterion(decode_output, targets)
-        # 輸出decode_output和targets 的最大最小值
-        # print("decode_output max: ", decode_output.max())
-        # print("decode_output min: ", decode_output.min())
-        # print("targets max: ", targets.max())
-        # print("targets min: ", targets.min())
-        # print()
         loss.backward()
         optimizer.step()
         train_logs.append(loss.item())
@@ -123,10 +118,19 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
             prev_output = None
             
             inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
+            image = inputs[:, 0, 0:4, :, :].view(4, 137, 137)
+            edge = inputs[:, 0, 4, :, :].view(1, 137, 137)
             for t in range(seq_len):
                 input = inputs[:, t, :, :, :]
                 decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
             
+            decode_output = decode_output.view(1, 32, 32, 32)
+        
+            decode_voxel = decode_output.cpu().detach().numpy()
+            original_voxel = targets.cpu().detach().numpy()
+            image = image.cpu().detach().numpy()
+            edge = edge.cpu().detach().numpy()
+            update_voxel(decode_voxel[0], original_voxel[0], image, edge)
             decode_output = decode_output.view(1, 32, 32, 32)
             loss = criterion(decode_output, targets)
             val_logs.append(loss.item())
@@ -166,8 +170,8 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
         skip_cnt = 0
         renders = []
         voxels = []
+        start_io = time.time()
         for root, dirs, files in os.walk(voxel_dataset_path):
-            start_io = time.time()
             for file in files:
                 file_name = os.path.join(root, file)
                 folder = file_name.split('/')

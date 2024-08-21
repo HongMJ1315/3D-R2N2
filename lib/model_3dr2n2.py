@@ -3,7 +3,9 @@ import asyncio
 import os
 import threading
 import time
+import cv2
 import torch
+import random
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -16,7 +18,7 @@ from lib.binvox import load_voxel_file
 from lib.curve import *
 from lib.config import *
 from lib.gl import *
-from lib.autoencoder import Autoencoder, CNNDecoder, CNNEncoder
+from lib.autoencoder import Autoencoder, CNNDecoder, CNNEncoder, image_preprocessing
 from lib.lstm_decoder import LSTMDecoder, LSTM, CTNN3DDecoder
 
 class TrainDataset(Dataset):
@@ -70,7 +72,6 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
     
     model.to(device)
     criterion.to(device)
-    seq_len = 1
     model.train()
     start = time.time()
     timer = time.time()
@@ -83,7 +84,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         h_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)
         c_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)    
         prev_output = None
-        
+        seq_len = inputs.size(1)
         inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
         image = inputs[:, 0, 0:4, :, :].view(4, 137, 137)
         edge = inputs[:, 0, 4, :, :].view(1, 137, 137)
@@ -97,7 +98,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         original_voxel = targets.cpu().detach().numpy()
         image = image.cpu().detach().numpy()
         edge = edge.cpu().detach().numpy()
-        update_voxel(decode_voxel[0], original_voxel[0], image, edge)
+        update_train_voxel(decode_voxel[0], original_voxel[0], image, edge)
         
         loss = criterion(decode_output, targets)
         loss.backward()
@@ -116,7 +117,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
             h_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)
             c_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)    
             prev_output = None
-            
+            seq_len = inputs.size(1)
             inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
             image = inputs[:, 0, 0:4, :, :].view(4, 137, 137)
             edge = inputs[:, 0, 4, :, :].view(1, 137, 137)
@@ -130,7 +131,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
             original_voxel = targets.cpu().detach().numpy()
             image = image.cpu().detach().numpy()
             edge = edge.cpu().detach().numpy()
-            update_voxel(decode_voxel[0], original_voxel[0], image, edge)
+            update_train_voxel(decode_voxel[0], original_voxel[0], image, edge)
             decode_output = decode_output.view(1, 32, 32, 32)
             loss = criterion(decode_output, targets)
             val_logs.append(loss.item())
@@ -191,8 +192,19 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                 for v in voxel:
                     voxels.append(v.astype(np.float32))
                 for r in render:
-                    renders.append(r)
+                    # add one dimension to make it 4D tensor
+                    tr = r[np.newaxis, :, :, :]
+                    renders.append(tr)
+                
+                for i in range(25):
+                    multi_view_num = random.randint(1, len(render))
+                    random.shuffle(render)
+                    multi_view = render[:multi_view_num]
+                    renders.append(multi_view)
+                    voxels.append(voxel[0].astype(np.float32))
+                    
                 cnt += 1
+                
                 
                 if(cnt >= DEFAULT_3DR2N2_TRAINING_IMAGE_AMOUNT):
                     end_io = time.time()
@@ -254,7 +266,7 @@ def train_3dr2n2(device, voxel_dataset_path = DEFAULT_BINVOX_DATASET_FOLDER,
 
     gl_task_queue = queue.Queue()  # 初始化任务队列
     
-    gl_thread = threading.Thread(target=gl_main)
+    gl_thread = threading.Thread(target=gl_main, args=('train', ))
     gl_thread.start()
     
     result = asyncio.run(run_training(voxel_dataset_path, rendering_dataset_path, device, checkpoint_path))
@@ -266,3 +278,64 @@ def train_3dr2n2(device, voxel_dataset_path = DEFAULT_BINVOX_DATASET_FOLDER,
     torch.save(model.decoder.state_dict(), "model/ctnn3d.pth")
     return model, epoch_losses
 
+# %% 
+async def run_testing(model, images_path, device):
+    images = []
+    for root, dirs, files in os.walk(images_path):
+        for file in files:
+            file_name = os.path.join(root, file)    
+            if(file_name.split('.')[-1] != 'png'):
+                continue
+            image = cv2.imread(file_name, cv2.IMREAD_UNCHANGED)
+            images.append(image)
+    
+    seq_len = len(images)
+    images = image_preprocessing(images)
+    
+    print(type(images))
+
+    images = images.view(1, seq_len, 5, 137, 137)
+    images = images.to(device)    
+    
+    model.to(device)
+    model.eval()
+    
+    voxels = []
+    
+    
+    with torch.no_grad():
+        h_0 = torch.zeros(model.lstm.num_layers, 1, model.lstm.hidden_size).to(device)
+        c_0 = torch.zeros(model.lstm.num_layers, 1, model.lstm.hidden_size).to(device)    
+        prev_output = None
+        for t in range(seq_len):
+            input = images[:, t, :, :, :]
+            decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
+            print(prev_output, h_0, c_0, sep='\n-----------\n', end='\n~~~~~~~~~~~~~~~~~~~~~~~~~~\n')
+            decode_output = decode_output.view(1, 32, 32, 32)
+            voxels.append(decode_output.cpu().detach().numpy())
+    
+    # 將voxels和image轉成numpy array
+    voxels = np.array(voxels)
+    images = images.cpu().detach().numpy()[0]
+    print(images.shape)
+    update_test_voxel(voxels, images)
+    return voxels, images
+
+def test_3dr2n2(device, images_path, checkpoint_path = DEFAULT_3DR2N2_FILE):
+    global gl_task_queue
+    model = Model3DR2N2()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+
+    load_checkpoint(checkpoint_path, model, optimizer, device)    
+    
+    gl_task_queue = queue.Queue()  # 初始化任务队列
+    
+    gl_thread = threading.Thread(target=gl_main, args=('test', ))
+    gl_thread.start()
+    
+    result = asyncio.run(run_testing(model, images_path, device))
+    gl_thread.join()
+    
+    voxels, images = result
+    
+    return voxels, images

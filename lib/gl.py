@@ -14,6 +14,9 @@ from PIL import Image
 
 original_voxel = None
 predicted_voxel = None
+predicted_voxel_array = None
+predicted_texture_array = None
+texture_index = 0
 texture_ids = [None, None]
 gl_task_queue = queue.Queue()
 
@@ -88,7 +91,7 @@ void main()
 """
 
 # %%
-def update_voxel(predicted, original, texture, texture2):
+def update_train_voxel(predicted, original, texture, texture2):
     global original_voxel, predicted_voxel, gl_task_queue
     original_voxel = original
     predicted_voxel = predicted
@@ -111,6 +114,25 @@ def update_voxel(predicted, original, texture, texture2):
     gl_task_queue.put(lambda: update_texture(img_data, image.width, image.height, 0))
     gl_task_queue.put(lambda: update_texture(img_data2, image2.width, image2.height, 1))
     
+def update_test_data():
+    global gl_task_queue, texture_index, predicted_texture_array, predicted_voxel_array, predicted_voxel
+    texture = predicted_texture_array[texture_index].transpose(1, 2, 0)
+    texture = texture[:,:,:4]
+    predicted_voxel = predicted_voxel_array[texture_index][0]
+    texture = np.array(np.uint8(texture * 255))
+    image = Image.fromarray(texture, 'RGBA').transpose(Image.FLIP_TOP_BOTTOM)
+    img_data = image.tobytes()
+    
+    gl_task_queue.put(lambda: update_texture(img_data, image.width, image.height, 0))
+
+def update_test_voxel(predicted_array, texture_array):
+    global predicted_voxel_array, predicted_texture_array, texture_index
+    predicted_voxel_array = predicted_array
+    predicted_texture_array = texture_array
+    texture_index = 0
+    update_test_data()
+    
+
 def update_texture(img_data, width, height, index):
     global texture_ids
 
@@ -390,11 +412,100 @@ def draw_model(shader_program, vao, vbo, voxel, model, color, loc):
                     GL.glEnableVertexAttribArray(2)
                     GL.glDrawArrays(GL.GL_LINES, 0, 24)
                     
-                    
 # %%
-def gl_main():
+def draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao):
+    GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        
+    # 处理队列中的 OpenGL 任务
+    while not gl_task_queue.empty():
+        task = gl_task_queue.get()
+        task()
+    GL.glViewport(0, 0, 800, 600)
+    
+    view = glm.lookAt(glm.vec3(50.0, 50.0, 50.0), glm.vec3(-5.0, 0.0, 10.0), glm.vec3(0.0, 1.0, 0.0))
+    projection = glm.perspective(glm.radians(45.0), 800.0 / 600.0, 0.1, 100.0)
+    
+    GL.glUseProgram(shader_program)
+    viewLoc = GL.glGetUniformLocation(shader_program, "view")
+    projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
+    GL.glUniformMatrix4fv(viewLoc, 1, GL.GL_FALSE, glm.value_ptr(view))
+    GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(projection))
+    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "viewPos"), 50.0, 50.0, 50.0)
+    
+    # Draw light
+    lightPos = glm.vec3(0.0, 50.0, 0.0)
+    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "lightPos"), *lightPos)
+    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "lightColor"), 1.0, 1.0, 1.0)
+    
+    # Draw original voxel
+    model = glm.mat4(1.0)
+    model = glm.scale(model, glm.vec3(0.6, 0.6, 0.6))   
+    draw_model(shader_program, cube_vao, cube_vbo, original_voxel, model, (0.0, 1.0, 0.0), (0, 0, -40))
+    
+    # Draw predicted voxel
+    draw_model(shader_program, cube_vao, cube_vbo, predicted_voxel, model, (0.0, 0.0, 1.0), (0, 0, 40))
+    # Draw 2D Quad with texture
+    window_width, window_height = glfw.get_framebuffer_size(window)
+    draw_quad(shader_program, quad_vao, texture_ids[0], window_width, window_height, "top_left")
+    draw_quad(shader_program, quad_vao, texture_ids[1], window_width, window_height, "center")
+    glfw.swap_buffers(window)
+    glfw.poll_events()
+    
+    check_gl_error()
+        
+def draw_test(window, shader_program, cube_vao, cube_vbo, quad_vao):
+    GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        
+    # 处理队列中的 OpenGL 任务
+    while not gl_task_queue.empty():
+        task = gl_task_queue.get()
+        task()
+    GL.glViewport(0, 0, 800, 600)
+    
+    view = glm.lookAt(glm.vec3(50.0, 50.0, 50.0), glm.vec3(-5.0, 0.0, 10.0), glm.vec3(0.0, 1.0, 0.0))
+    projection = glm.perspective(glm.radians(45.0), 800.0 / 600.0, 0.1, 100.0)
+    
+    GL.glUseProgram(shader_program)
+    viewLoc = GL.glGetUniformLocation(shader_program, "view")
+    projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
+    GL.glUniformMatrix4fv(viewLoc, 1, GL.GL_FALSE, glm.value_ptr(view))
+    GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(projection))
+    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "viewPos"), 50.0, 50.0, 50.0)
+    
+    # Draw light
+    lightPos = glm.vec3(0.0, 50.0, 0.0)
+    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "lightPos"), *lightPos)
+    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "lightColor"), 1.0, 1.0, 1.0)
+    
+    # Draw original voxel
+    model = glm.mat4(1.0)
+    model = glm.scale(model, glm.vec3(0.6, 0.6, 0.6))   
+    if(predicted_texture_array is not None):
+        draw_model(shader_program, cube_vao, cube_vbo, predicted_voxel, model, (0.0, 1.0, 0.0), (0, 0, 0))
+    
+    # Draw 2D Quad with texture
+    window_width, window_height = glfw.get_framebuffer_size(window)
+    draw_quad(shader_program, quad_vao, texture_ids[0], window_width, window_height, "top_left")
+    glfw.swap_buffers(window)
+    glfw.poll_events()
+    
+    check_gl_error()
+
+def key_callback(window, key, scancode, action, mods):
+    global texture_index
+    if key == glfw.KEY_SPACE and action == glfw.PRESS:
+        texture_index = (texture_index + 1) % len(predicted_texture_array)
+        update_test_data()
+        
+    if key == glfw.KEY_ESCAPE and action == glfw.PRESS:
+        glfw.set_window_should_close(window, True)
+        
+# %%
+def gl_main(events):
     global gl_task_queue
     window = gl_init()
+    
+    glfw.set_key_callback(window, key_callback)
     if not window:
         return
 
@@ -406,45 +517,11 @@ def gl_main():
     texture_ids[1] = GL.glGenTextures(1)
     
     while not glfw.window_should_close(window):
-        GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
-        
-        # 处理队列中的 OpenGL 任务
-        while not gl_task_queue.empty():
-            task = gl_task_queue.get()
-            task()
-        GL.glViewport(0, 0, 800, 600)
-        
-        view = glm.lookAt(glm.vec3(50.0, 50.0, 50.0), glm.vec3(-5.0, 0.0, 10.0), glm.vec3(0.0, 1.0, 0.0))
-        projection = glm.perspective(glm.radians(45.0), 800.0 / 600.0, 0.1, 100.0)
-        
-        GL.glUseProgram(shader_program)
-        viewLoc = GL.glGetUniformLocation(shader_program, "view")
-        projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
-        GL.glUniformMatrix4fv(viewLoc, 1, GL.GL_FALSE, glm.value_ptr(view))
-        GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(projection))
-        GL.glUniform3f(GL.glGetUniformLocation(shader_program, "viewPos"), 50.0, 50.0, 50.0)
-        
-        # Draw light
-        lightPos = glm.vec3(0.0, 50.0, 0.0)
-        GL.glUniform3f(GL.glGetUniformLocation(shader_program, "lightPos"), *lightPos)
-        GL.glUniform3f(GL.glGetUniformLocation(shader_program, "lightColor"), 1.0, 1.0, 1.0)
-        
-        # Draw original voxel
-        model = glm.mat4(1.0)
-        model = glm.scale(model, glm.vec3(0.6, 0.6, 0.6))   
-        draw_model(shader_program, cube_vao, cube_vbo, original_voxel, model, (0.0, 1.0, 0.0), (0, 0, -40))
-        
-        # Draw predicted voxel
-        draw_model(shader_program, cube_vao, cube_vbo, predicted_voxel, model, (0.0, 0.0, 1.0), (0, 0, 40))
-        # Draw 2D Quad with texture
-        window_width, window_height = glfw.get_framebuffer_size(window)
-        draw_quad(shader_program, quad_vao, texture_ids[0], window_width, window_height, "top_left")
-        draw_quad(shader_program, quad_vao, texture_ids[1], window_width, window_height, "center")
-        glfw.swap_buffers(window)
-        glfw.poll_events()
-        
-        check_gl_error()
-    
+        if(events == 'train'):
+            draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao)
+        elif(events == 'test'):
+            draw_test(window, shader_program, cube_vao, cube_vbo, quad_vao)
+            
     glfw.terminate()
 
 if(__name__ == "__main__"):

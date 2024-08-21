@@ -4,7 +4,7 @@ from matplotlib.animation import FuncAnimation
 fig, ax = plt.subplots()
 train_line, = ax.plot([], [], label='Train Loss')
 val_line, = ax.plot([], [], label='Val Loss')
-epoch_line, = ax.plot([], [], 'r-', label='Epoch Loss')  # 修改為折線
+epoch_line, = ax.plot([], [], 'ro-', label='Epoch Loss')  # 修改為折線
 ax.set_xlabel('Sub-Epoch')
 ax.set_ylabel('Loss')
 ax.legend()
@@ -21,7 +21,10 @@ def update_plot(train_loss, val_loss, epoch_loss):
         epoch.append((train * 0.8 + val * 0.2))
     epoch_line.set_data(epoch_x, epoch)
     
-    ax.set_xlim(0, max(len(train_loss), epoch_x[-1] if epoch_x else 0))
+    if len(train_loss) > 0 or (epoch_x and len(epoch_x) > 0):
+        ax.set_xlim(0, max(len(train_loss), epoch_x[-1] if epoch_x else 0))
+    else:
+        ax.set_xlim(-0.5, 0.5)  # 設置一個小的範圍以避免警告
     ax.set_ylim(0, max(max(train_loss), max(val_loss), max(epoch)) if train_loss and val_loss and epoch else 1)
     
     fig.canvas.draw()

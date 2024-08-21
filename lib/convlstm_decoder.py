@@ -253,7 +253,7 @@ async def train_sub_epoch(epoch, datas, model, criterion, optimizer, device, tra
         
         decode_voxel = decode_output.cpu().detach().numpy()
         original_voxel = targets.cpu().detach().numpy()
-        await update_voxel(decode_voxel[0], original_voxel[0])
+        await update_train_voxel(decode_voxel[0], original_voxel[0])
         
         loss = criterion(decode_output , targets)
         loss.backward()

@@ -22,15 +22,16 @@ from lib.autoencoder import Autoencoder, CNNDecoder, CNNEncoder, image_preproces
 from lib.lstm_decoder import LSTMDecoder, LSTM, CTNN3DDecoder
 
 class TrainDataset(Dataset):
-    def __init__(self, images, voxels):
+    def __init__(self, images, voxels, folder):
         self.images = images
         self.voxels = voxels
+        self.folder = folder
         
     def __len__(self):
         return len(self.images)
     
     def __getitem__(self, idx):
-        return self.images[idx], self.voxels[idx]
+        return self.images[idx], self.voxels[idx], self.folder[idx]
 
 class ClippedReLU(nn.Module):
     def __init__(self, min_value=0.0, max_value=1.0):
@@ -75,31 +76,39 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
     model.train()
     start = time.time()
     timer = time.time()
-    for inputs, targets in train_loader:
+    for inputs, targets, folder in train_loader:
         optimizer.zero_grad()
         inputs = inputs.to(device)
         targets = targets.to(device)
         batch_size = inputs.size(0)
-        
         h_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)
         c_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)    
         prev_output = None
         seq_len = inputs.size(1)
         inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
-        image = inputs[:, 0, 0:4, :, :].view(4, 137, 137)
-        edge = inputs[:, 0, 4, :, :].view(1, 137, 137)
+        
+        # Visualize Text
+        text = 'Train Epoch:{} Folder:{}'.format(epoch, folder[0])
+        if(seq_len == 1): text += ' Single View'
+        else : text += ' Multi View'
+        
         for t in range(seq_len):
             input = inputs[:, t, :, :, :]
             decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
+            
+            # Visualize
+            ttext = text + ' ' + str(t)
+            image = inputs[:, t, 0:4, :, :].view(4, 137, 137)
+            edge = inputs[:, t, 4, :, :].view(1, 137, 137)
+            decode_output = decode_output.view(1, 32, 32, 32)
+            decode_voxel = decode_output.cpu().detach().numpy()
+            original_voxel = targets.cpu().detach().numpy()
+            image = image.cpu().detach().numpy()
+            edge = edge.cpu().detach().numpy()
+            update_text(ttext)
+            update_train_voxel(decode_voxel[0], original_voxel[0], image, edge)
 
         decode_output = decode_output.view(1, 32, 32, 32)
-        
-        decode_voxel = decode_output.cpu().detach().numpy()
-        original_voxel = targets.cpu().detach().numpy()
-        image = image.cpu().detach().numpy()
-        edge = edge.cpu().detach().numpy()
-        update_train_voxel(decode_voxel[0], original_voxel[0], image, edge)
-        
         loss = criterion(decode_output, targets)
         loss.backward()
         optimizer.step()
@@ -163,7 +172,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
 
     model.to(device)
     model.train()
-    
+    update_text('Start Training 3D-R2N2')
     for epoch in range(start_epoch, num_epochs):
         start = time.time()
         cnt = 0
@@ -171,6 +180,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
         skip_cnt = 0
         renders = []
         voxels = []
+        folders = []
         start_io = time.time()
         for root, dirs, files in os.walk(voxel_dataset_path):
             for file in files:
@@ -186,6 +196,8 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                     continue
                 if(file_name.split('.')[-1] != 'binvox'):
                     continue
+                
+                update_text('Read Data:{}'.format(folder))
                 voxel, render = read_rendering_and_voxel(file_name, rendering_dataset_path)
                 if(voxel is None or render is None or len(voxel) != len(render)):
                     continue
@@ -205,15 +217,18 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                     
                 cnt += 1
                 
+                for _ in range(len(voxel) + 25):
+                    folders.append(folder)
                 
                 if(cnt >= DEFAULT_3DR2N2_TRAINING_IMAGE_AMOUNT):
                     end_io = time.time()
                     print(time.strftime("%H:%M:%S", time.localtime())) 
                     print('IO Time: {:.4f}'.format(end_io-start_io)) 
-                    dataset = TrainDataset(renders, voxels)
+                    dataset = TrainDataset(renders, voxels, folders)
                     await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses)
                     renders = []
                     voxels = []
+                    folders = []
                     cnt = 0
                     start_io = time.time()
                     save_checkpoint({
@@ -227,7 +242,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                     }, filename = checkpoint_path)
                     
         if(cnt > 0):
-            dataset = TrainDataset(renders, voxels)
+            dataset = TrainDataset(renders, voxels, folders)
             await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses)
             renders = []
             voxels = []

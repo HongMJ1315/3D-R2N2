@@ -9,7 +9,10 @@ import ctypes
 import glm
 import queue
 import threading
+import freetype
 from PIL import Image
+from lib.config import GL_FONTS, GL_FONTS_SIZE, GL_VISUALIZE_THRESHOLD
+
 
 
 original_voxel = None
@@ -20,91 +23,24 @@ texture_index = 0
 texture_ids = [None, None]
 gl_task_queue = queue.Queue()
 
+
+font = None
+text_texture = None
+text_content = ""
+
 GRADIENT_COLORS = [
     ((0.0, 0.0, 1.0), 0.1), #0.1
-    ((0.0, 0.5, 1.0), 0.2), #0.2
-    ((0.0, 1.0, 1.0), 0.3), #0.3
-    ((0.0, 1.0, 0.5), 0.4), #0.4
-    ((0.0, 1.0, 0.0), 0.5), #0.5
-    ((0.5, 1.0, 0.0), 0.6), #0.6
-    ((1.0, 1.0, 0.0), 0.7), #0.7
-    ((1.0, 0.5, 0.0), 0.8), #0.8
-    ((1.0, 0.0, 0.0), 0.9), #0.9
+    ((0.0, 0.5, 1.0), 0.1), #0.2
+    ((0.0, 1.0, 1.0), 0.1), #0.3
+    ((0.0, 1.0, 0.5), 0.1), #0.4
+    ((0.0, 1.0, 0.0), 0.1), #0.5
+    ((0.5, 1.0, 0.0), 0.1), #0.6
+    ((1.0, 1.0, 0.0), 0.1), #0.7
+    ((1.0, 0.5, 0.0), 0.1), #0.8
+    ((1.0, 0.0, 0.0), 0.1), #0.9
     ((0.0, 0.0, 0.0), 0.0)  #error
 ]
     
-    
-    
-# 定義頂點著色器
-vertex_shader_source = """
-#version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec2 aTexCoord;  // 修改为vec2
-
-out vec3 FragPos;
-out vec2 TexCoord;  // 输出纹理坐标
-out vec3 Normal;
-
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
-
-void main()
-{
-    FragPos = vec3(model * vec4(aPos, 1.0));
-    TexCoord = aTexCoord;  // 传递纹理坐标
-    Normal = mat3(transpose(inverse(model))) * vec3(0.0, 0.0, 1.0);  
-    gl_Position = projection * view * vec4(FragPos, 1.0);
-}
-
-"""
-
-# 定義片段著色器
-fragment_shader_source = """
-#version 330 core
-out vec4 FragColor;
-
-in vec3 FragPos;
-in vec3 Normal;
-in vec2 TexCoord;
-
-uniform vec3 lightPos;
-uniform vec3 viewPos;
-uniform vec3 lightColor;
-uniform vec4 objectColor;  // 改為 vec4 以包含 alpha 值
-uniform sampler2D texture1;
-uniform bool isEdge;
-uniform bool isTextured;
-
-void main()
-{
-    if (isTextured) {
-        FragColor = texture(texture1, TexCoord);
-    } else if (isEdge) {
-        FragColor = vec4(1.0, 1.0, 1.0, objectColor.a);  // 使用 objectColor 的 alpha 值
-    } else {
-        // 原始的光照計算邏輯
-        float ambientStrength = 0.5;
-        vec3 ambient = ambientStrength * lightColor;
-        
-        vec3 norm = normalize(Normal);
-        vec3 lightDir = normalize(lightPos - FragPos);
-        float diff = max(dot(norm, lightDir), 0.0);
-        vec3 diffuse = diff * lightColor;
-        
-        float specularStrength = 0.5;
-        vec3 viewDir = normalize(viewPos - FragPos);
-        vec3 reflectDir = reflect(-lightDir, norm);  
-        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
-        vec3 specular = specularStrength * spec * lightColor;  
-        
-        vec3 result = (ambient + diffuse + specular) * objectColor.rgb;
-        FragColor = vec4(result, objectColor.a);  // 使用 objectColor 的 alpha 值
-    }
-}
-
-"""
-
 # %%
 def update_train_voxel(predicted, original, texture, texture2):
     global original_voxel, predicted_voxel, gl_task_queue
@@ -154,25 +90,25 @@ def update_texture(img_data, width, height, index):
     current_context = glfw.get_current_context()
     if not current_context:
         raise RuntimeError("No current OpenGL context")
-    
     GL.glBindTexture(GL.GL_TEXTURE_2D, texture_ids[index])
     GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, width, height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
     GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
     GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
 
-
+def update_text(new_text):
+    global text_content, gl_task_queue
+    text_content = new_text
 # %%
 def load_texture(path):
     global texture_id
-    image = Image.open(path)
-    print("max: {}, min: {}".format(np.max(np.array(image)), np.min(np.array(image))))
-    image = image.transpose(Image.FLIP_TOP_BOTTOM)
-    img_data = image.convert("RGBA").tobytes()
+    img = Image.open(path)
+    img = img.transpose(Image.FLIP_TOP_BOTTOM)
+    img_data = img.convert("RGBA").tobytes()
     
     texture_id = GL.glGenTextures(1)
     GL.glBindTexture(GL.GL_TEXTURE_2D, texture_id)
     
-    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, image.width, image.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
+    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
     GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
     
     GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
@@ -222,7 +158,7 @@ def gl_init():
     
     GL.glEnable(GL.GL_BLEND)
     GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
-    
+    setup_font(GL_FONTS, GL_FONTS_SIZE)  # 使用適當的字體路徑和大小
     return window
 
 # %%
@@ -231,6 +167,114 @@ def check_gl_error():
     if error != GL.GL_NO_ERROR:
         print(f"GL Error: {error}")
         
+# %%
+def setup_font(font_path, font_size):
+    global font
+    font = freetype.Face(font_path)
+    font.set_char_size(font_size * 45)
+
+def create_text_texture(text):
+    global text_texture, font
+    
+    width, height = 0, 0
+    for char in text:
+        font.load_char(char)
+        width += font.glyph.advance.x >> 6
+        height = max(height, font.glyph.bitmap.rows)
+    
+    img = np.zeros((height, width, 4), dtype=np.ubyte)
+    
+    x = 0
+    for char in text:
+        font.load_char(char)
+        bitmap = font.glyph.bitmap
+        y = height - font.glyph.bitmap_top
+        glyph_width = bitmap.width
+        glyph_height = bitmap.rows
+        
+        y = max(0, y)
+        
+        buffer_array = np.array(bitmap.buffer, dtype=np.ubyte).reshape(glyph_height, glyph_width)
+        
+        y_end = min(y + glyph_height, height)
+        x_end = min(x + glyph_width, width)
+        
+        copy_height = y_end - y
+        copy_width = x_end - x
+        
+        img[y:y_end, x:x_end, 0] = 255
+        img[y:y_end, x:x_end, 1] = 255
+        img[y:y_end, x:x_end, 2] = 255
+        img[y:y_end, x:x_end, 3] = buffer_array[:copy_height, :copy_width]
+        
+        x += font.glyph.advance.x >> 6
+    
+    img = Image.fromarray(img, 'RGBA')
+    img = img.transpose(Image.FLIP_TOP_BOTTOM)
+    img_data = img.tobytes()
+    
+    if text_texture is None:
+        text_texture = GL.glGenTextures(1)
+    
+    # print("image size: {}, {}, max: {}, min: {}".format(img.width, img.height, np.max(np.array(img)), np.min(np.array(img))))
+        
+    GL.glBindTexture(GL.GL_TEXTURE_2D, text_texture)
+    
+    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
+    GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
+    
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR)
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+    
+    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+    
+    return width, height
+
+def draw_text(shader_program, quad_vao, window_width, window_height):
+    global text_texture, text_content
+    
+    if text_texture is None:
+        create_text_texture(text_content)
+    
+    text_width, text_height = create_text_texture(text_content)
+
+    GL.glUseProgram(shader_program)
+    
+    GL.glActiveTexture(GL.GL_TEXTURE0)
+    GL.glBindTexture(GL.GL_TEXTURE_2D, text_texture)
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "texture1"), 0)
+
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), True)
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isEdge"), False)
+    
+    GL.glViewport(window_width - text_width, 0, text_width, text_height)
+    ortho = glm.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
+    projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
+    GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(ortho))
+    
+    model = glm.mat4(1.0)
+    model = glm.translate(model, glm.vec3(0, 0, 0.0))
+    modelLoc = GL.glGetUniformLocation(shader_program, "model")
+    GL.glUniformMatrix4fv(modelLoc, 1, GL.GL_FALSE, glm.value_ptr(model))
+    
+    view = glm.mat4(1.0)
+    viewLoc = GL.glGetUniformLocation(shader_program, "view")
+    GL.glUniformMatrix4fv(viewLoc, 1, GL.GL_FALSE, glm.value_ptr(view))
+    
+    GL.glBindVertexArray(quad_vao)   
+    GL.glDrawElements(GL.GL_TRIANGLES, 6, GL.GL_UNSIGNED_INT, None)
+    GL.glBindVertexArray(0)
+    
+    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), False)
+    
+    GL.glViewport(0, 0, window_width, window_height)
+    
+    
+
+
 # %%
 def setup_quad():
     vertices = np.array([
@@ -403,6 +447,8 @@ def setup_cube():
 
 # %%
 def get_gradient_color(value):
+    if(value < GL_VISUALIZE_THRESHOLD):
+        return GRADIENT_COLORS[-1]
     index = int(value * 10) - 1
     if(index >= len(GRADIENT_COLORS) or index < 0):
         return GRADIENT_COLORS[-1]
@@ -448,7 +494,6 @@ def draw_model(shader_program, vao, vbo, voxel, model, color, loc):
 # %%
 def draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao):
     GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
-        
     # 处理队列中的 OpenGL 任务
     while not gl_task_queue.empty():
         task = gl_task_queue.get()
@@ -481,6 +526,7 @@ def draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao):
     window_width, window_height = glfw.get_framebuffer_size(window)
     draw_quad(shader_program, quad_vao, texture_ids[0], window_width, window_height, "top_left")
     draw_quad(shader_program, quad_vao, texture_ids[1], window_width, window_height, "center")
+    draw_text(shader_program, quad_vao, window_width, window_height)
     glfw.swap_buffers(window)
     glfw.poll_events()
     
@@ -519,6 +565,7 @@ def draw_test(window, shader_program, cube_vao, cube_vbo, quad_vao):
     # Draw 2D Quad with texture
     window_width, window_height = glfw.get_framebuffer_size(window)
     draw_quad(shader_program, quad_vao, texture_ids[0], window_width, window_height, "top_left")
+    draw_text(shader_program, quad_vao, window_width, window_height)
     glfw.swap_buffers(window)
     glfw.poll_events()
     
@@ -535,19 +582,25 @@ def key_callback(window, key, scancode, action, mods):
         
 # %%
 def gl_main(events):
-    global gl_task_queue
+    global gl_task_queue, text_texture
     window = gl_init()
     
     glfw.set_key_callback(window, key_callback)
     if not window:
         return
 
+    # read shader source from file and create shader program
+    with open("shaders/phong.vert", "r") as f:
+        vertex_shader_source = f.read()
+    with open("shaders/phong.frag", "r") as f:
+        fragment_shader_source = f.read()
     shader_program = create_shader_program(vertex_shader_source, fragment_shader_source)
     cube_vao, cube_vbo = setup_cube()
     quad_vao = setup_quad()
     
     texture_ids[0] = GL.glGenTextures(1)
     texture_ids[1] = GL.glGenTextures(1)
+    text_texture = GL.glGenTextures(1)
     
     while not glfw.window_should_close(window):
         if(events == 'train'):

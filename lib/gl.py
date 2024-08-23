@@ -20,6 +20,21 @@ texture_index = 0
 texture_ids = [None, None]
 gl_task_queue = queue.Queue()
 
+GRADIENT_COLORS = [
+    ((0.0, 0.0, 1.0), 0.1), #0.1
+    ((0.0, 0.5, 1.0), 0.2), #0.2
+    ((0.0, 1.0, 1.0), 0.3), #0.3
+    ((0.0, 1.0, 0.5), 0.4), #0.4
+    ((0.0, 1.0, 0.0), 0.5), #0.5
+    ((0.5, 1.0, 0.0), 0.6), #0.6
+    ((1.0, 1.0, 0.0), 0.7), #0.7
+    ((1.0, 0.5, 0.0), 0.8), #0.8
+    ((1.0, 0.0, 0.0), 0.9), #0.9
+    ((0.0, 0.0, 0.0), 0.0)  #error
+]
+    
+    
+    
 # 定義頂點著色器
 vertex_shader_source = """
 #version 330 core
@@ -56,7 +71,7 @@ in vec2 TexCoord;
 uniform vec3 lightPos;
 uniform vec3 viewPos;
 uniform vec3 lightColor;
-uniform vec3 objectColor;
+uniform vec4 objectColor;  // 改為 vec4 以包含 alpha 值
 uniform sampler2D texture1;
 uniform bool isEdge;
 uniform bool isTextured;
@@ -64,11 +79,11 @@ uniform bool isTextured;
 void main()
 {
     if (isTextured) {
-        FragColor = texture(texture1, TexCoord);  // 使用纹理坐标进行纹理采样
+        FragColor = texture(texture1, TexCoord);
     } else if (isEdge) {
-        FragColor = vec4(1.0, 1.0, 1.0, 1.0);  // 白色边缘
+        FragColor = vec4(1.0, 1.0, 1.0, objectColor.a);  // 使用 objectColor 的 alpha 值
     } else {
-        // 原始的光照计算逻辑
+        // 原始的光照計算邏輯
         float ambientStrength = 0.5;
         vec3 ambient = ambientStrength * lightColor;
         
@@ -83,8 +98,8 @@ void main()
         float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
         vec3 specular = specularStrength * spec * lightColor;  
         
-        vec3 result = (ambient + diffuse + specular) * objectColor;
-        FragColor = vec4(result, 1.0);
+        vec3 result = (ambient + diffuse + specular) * objectColor.rgb;
+        FragColor = vec4(result, objectColor.a);  // 使用 objectColor 的 alpha 值
     }
 }
 
@@ -203,7 +218,11 @@ def gl_init():
         glfw.terminate()
         return None
     glfw.make_context_current(window)
-    GL.glEnable(GL.GL_DEPTH_TEST)
+    GL.glEnable(GL.GL_DEPTH_TEST)   
+    
+    GL.glEnable(GL.GL_BLEND)
+    GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+    
     return window
 
 # %%
@@ -383,20 +402,33 @@ def setup_cube():
     return vao, vbo
 
 # %%
+def get_gradient_color(value):
+    index = int(value * 10) - 1
+    if(index >= len(GRADIENT_COLORS) or index < 0):
+        return GRADIENT_COLORS[-1]
+    return GRADIENT_COLORS[index]
+
 def draw_model(shader_program, vao, vbo, voxel, model, color, loc):
     if voxel is None:
         return
     
     GL.glUseProgram(shader_program)
     
-    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "objectColor"), *color)
+    GL.glDepthMask(GL.GL_FALSE)
+    
     isEdgeLoc = GL.glGetUniformLocation(shader_program, "isEdge")
 
     modelLoc = GL.glGetUniformLocation(shader_program, "model")
     for i in range(voxel.shape[0]):
         for j in range(voxel.shape[1]):
             for k in range(voxel.shape[2]):
-                if voxel[i, j, k] == True or voxel[i, j, k] >= 0.5:
+                if voxel[i, j, k] == True or voxel[i, j, k] >= 0.1:
+                    if(voxel[i, j, k] != True):
+                        color, alpha = get_gradient_color(voxel[i, j, k])
+                    else:
+                        color = (0.0, 1.0, 0.0); alpha = 1.0
+                    
+                    GL.glUniform4f(GL.glGetUniformLocation(shader_program, "objectColor"), *color, alpha)
                     new_model = glm.translate(model, glm.vec3(i + loc[0], j + loc[1], k + loc[2]))
                     GL.glUniformMatrix4fv(modelLoc, 1, GL.GL_FALSE, glm.value_ptr(new_model))
                    
@@ -411,7 +443,8 @@ def draw_model(shader_program, vao, vbo, voxel, model, color, loc):
                     GL.glVertexAttribPointer(2, 3, GL.GL_FLOAT, GL.GL_FALSE, 12, ctypes.c_void_p(0))
                     GL.glEnableVertexAttribArray(2)
                     GL.glDrawArrays(GL.GL_LINES, 0, 24)
-                    
+    
+    GL.glDepthMask(GL.GL_TRUE)
 # %%
 def draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao):
     GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)

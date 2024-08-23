@@ -28,6 +28,8 @@ font = None
 text_texture = None
 text_content = ""
 
+color_code_texture = None
+
 GRADIENT_COLORS = [
     ((0.0, 0.0, 1.0), 0.1), #0.1
     ((0.0, 0.5, 1.0), 0.1), #0.2
@@ -273,9 +275,129 @@ def draw_text(shader_program, quad_vao, window_width, window_height):
     
     GL.glViewport(0, 0, window_width, window_height)
     
+def create_color_code_texture():
+    global color_code_texture, font, GRADIENT_COLORS, GL_VISUALIZE_THRESHOLD
     
+    width, height = 0, 0
+    color_code_text_array = []
+    color_code_text_color = []
+    
+    threadhold = int(GL_VISUALIZE_THRESHOLD * 10)
+    for i in range(threadhold, 10):
+        if i == threadhold: sep = ""
+        else: sep = " | "
+        
+        text = sep + "0." + str(i)
+
+        for char in text:
+            font.load_char(char)
+            width += font.glyph.advance.x >> 6
+            height = max(height, font.glyph.bitmap.rows)
+        
+        if(sep != ""):
+            color_code_text_array.append(sep)
+        color_code_text_array.append("0." + str(i))
+        color_code_text_color.append(GRADIENT_COLORS[i - 1][0])
 
 
+    img = np.zeros((height, width, 4), dtype=np.ubyte)
+    
+    x = 0
+    color_index = 0
+    for string in color_code_text_array:
+        for char in string:
+            font.load_char(char)
+            bitmap = font.glyph.bitmap
+            y = height - font.glyph.bitmap_top
+            glyph_width = bitmap.width
+            glyph_height = bitmap.rows
+
+            y = max(0, y)
+
+            buffer_array = np.array(bitmap.buffer, dtype=np.ubyte).reshape(glyph_height, glyph_width)
+
+            y_end = min(y + glyph_height, height)
+            x_end = min(x + glyph_width, width)
+
+            copy_height = y_end - y
+            copy_width = x_end - x
+            
+            if(color_index >= len(color_code_text_color)):
+                color = (0.0, 0.0, 0.0)
+            else:
+                color = color_code_text_color[color_index]
+                if((char == "|") and color_index < len(color_code_text_color)):
+                    color_index += 1
+                    color = (1, 1, 1)
+
+            img[y:y_end, x:x_end, 0] = color[0] * 255
+            img[y:y_end, x:x_end, 1] = color[1] * 255
+            img[y:y_end, x:x_end, 2] = color[2] * 255
+            img[y:y_end, x:x_end, 3] = buffer_array[:copy_height, :copy_width]
+
+            x += font.glyph.advance.x >> 6
+            
+            
+    img = Image.fromarray(img, 'RGBA')
+    img = img.transpose(Image.FLIP_TOP_BOTTOM)
+    img_data = img.tobytes()
+    
+    if color_code_texture is None:
+        color_code_texture = GL.glGenTextures(1)
+        
+    GL.glBindTexture(GL.GL_TEXTURE_2D, color_code_texture)
+    
+    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width, img.height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, img_data)
+    GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
+    
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT)
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT)
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR)
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+    
+    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+    
+    return width, height
+
+def draw_color_code(shader_program, quad_vao, window_width, window_height):
+    global color_code_texture
+    
+    if color_code_texture is None:
+        create_color_code_texture()
+    
+    text_width, text_height = create_color_code_texture()
+
+    GL.glUseProgram(shader_program)
+    
+    GL.glActiveTexture(GL.GL_TEXTURE0)
+    GL.glBindTexture(GL.GL_TEXTURE_2D, color_code_texture)
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "texture1"), 0)
+
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), True)
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isEdge"), False)
+
+    GL.glViewport(window_width - text_width - 10, 30, text_width, text_height)
+    ortho = glm.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
+    projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
+    GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(ortho))
+    
+    model = glm.mat4(1.0)
+    model = glm.translate(model, glm.vec3(0, 0, 0.0))
+    modelLoc = GL.glGetUniformLocation(shader_program, "model")
+    GL.glUniformMatrix4fv(modelLoc, 1, GL.GL_FALSE, glm.value_ptr(model))
+    
+    view = glm.mat4(1.0)
+    viewLoc = GL.glGetUniformLocation(shader_program, "view")
+    GL.glUniformMatrix4fv(viewLoc, 1, GL.GL_FALSE, glm.value_ptr(view))
+    
+    GL.glBindVertexArray(quad_vao)   
+    GL.glDrawElements(GL.GL_TRIANGLES, 6, GL.GL_UNSIGNED_INT, None)
+    GL.glBindVertexArray(0)
+    
+    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+    GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), False)
+    
+    GL.glViewport(0, 0, window_width, window_height)
 # %%
 def setup_quad():
     vertices = np.array([
@@ -528,6 +650,7 @@ def draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao):
     draw_quad(shader_program, quad_vao, texture_ids[0], window_width, window_height, "top_left")
     draw_quad(shader_program, quad_vao, texture_ids[1], window_width, window_height, "center")
     draw_text(shader_program, quad_vao, window_width, window_height)
+    draw_color_code(shader_program, quad_vao, window_width, window_height)
     glfw.swap_buffers(window)
     glfw.poll_events()
     
@@ -603,6 +726,7 @@ def gl_main(events):
     texture_ids[0] = GL.glGenTextures(1)
     texture_ids[1] = GL.glGenTextures(1)
     text_texture = GL.glGenTextures(1)
+    color_code_texture = GL.glGenTextures(1)
     
     while not glfw.window_should_close(window):
         if(events == 'train'):

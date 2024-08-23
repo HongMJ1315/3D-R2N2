@@ -88,7 +88,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
         
         # Visualize Text
-        text = 'Train Epoch:{} Folder:{}'.format(epoch, folder[0])
+        text = 'Training Epoch:{} Folder:{}'.format(epoch, folder[0])
         if(seq_len == 1): text += ' Single View'
         else : text += ' Multi View'
         
@@ -119,7 +119,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
     
     model.eval()
     with torch.no_grad():
-        for inputs, targets in val_loader:
+        for inputs, targets, folder in val_loader:
             inputs = inputs.to(device)
             targets = targets.to(device)
             batch_size = inputs.size(0)
@@ -128,19 +128,27 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
             prev_output = None
             seq_len = inputs.size(1)
             inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
-            image = inputs[:, 0, 0:4, :, :].view(4, 137, 137)
-            edge = inputs[:, 0, 4, :, :].view(1, 137, 137)
+
+            # Visualize Text
+            text = 'Validation Epoch:{} Folder:{}'.format(epoch, folder[0])
+            if(seq_len == 1): text += ' Single View'
+            else : text += ' Multi View'
             for t in range(seq_len):
                 input = inputs[:, t, :, :, :]
                 decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
-            
-            decode_output = decode_output.view(1, 32, 32, 32)
-        
-            decode_voxel = decode_output.cpu().detach().numpy()
-            original_voxel = targets.cpu().detach().numpy()
-            image = image.cpu().detach().numpy()
-            edge = edge.cpu().detach().numpy()
-            update_train_voxel(decode_voxel[0], original_voxel[0], image, edge)
+                
+                # Visualize
+                ttext = text + ' ' + str(t)
+                image = inputs[:, t, 0:4, :, :].view(4, 137, 137)
+                edge = inputs[:, t, 4, :, :].view(1, 137, 137)
+                decode_output = decode_output.view(1, 32, 32, 32)
+                decode_voxel = decode_output.cpu().detach().numpy()
+                original_voxel = targets.cpu().detach().numpy()
+                image = image.cpu().detach().numpy()
+                edge = edge.cpu().detach().numpy()
+                update_text(ttext)
+                update_train_voxel(decode_voxel[0], original_voxel[0], image, edge)
+                
             decode_output = decode_output.view(1, 32, 32, 32)
             loss = criterion(decode_output, targets)
             val_logs.append(loss.item())

@@ -81,6 +81,7 @@ def update_test_voxel(predicted_array, texture_array):
     predicted_voxel_array = predicted_array
     predicted_texture_array = texture_array
     texture_index = 0
+    update_text(f"Predicted Voxel: View {texture_index + 1}")
     update_test_data()
     
 
@@ -249,7 +250,7 @@ def draw_text(shader_program, quad_vao, window_width, window_height):
     GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isTextured"), True)
     GL.glUniform1i(GL.glGetUniformLocation(shader_program, "isEdge"), False)
     
-    GL.glViewport(window_width - text_width, 0, text_width, text_height)
+    GL.glViewport(window_width - text_width - 10, 10, text_width, text_height)
     ortho = glm.ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
     projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
     GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(ortho))
@@ -575,6 +576,7 @@ def key_callback(window, key, scancode, action, mods):
     global texture_index
     if key == glfw.KEY_SPACE and action == glfw.PRESS:
         texture_index = (texture_index + 1) % len(predicted_texture_array)
+        update_text(f"Predicted Voxel: View {texture_index + 1}")
         update_test_data()
         
     if key == glfw.KEY_ESCAPE and action == glfw.PRESS:

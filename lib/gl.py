@@ -10,10 +10,11 @@ import glm
 import queue
 import threading
 import freetype
+from lib.gl_matrix import move_camera_up_down, move_camera_left_right
 from PIL import Image
 from lib.config import GL_FONTS, GL_FONTS_SIZE, GL_VISUALIZE_THRESHOLD
 
-
+threasold = int(GL_VISUALIZE_THRESHOLD * 10 - 1)
 
 original_voxel = None
 predicted_voxel = None
@@ -23,12 +24,16 @@ texture_index = 0
 texture_ids = [None, None]
 gl_task_queue = queue.Queue()
 
-
 font = None
 text_texture = None
 text_content = ""
 
 color_code_texture = None
+
+key_state = {}
+
+view_pos = glm.vec3(50, 50, 50)
+center_pos = glm.vec3(-5.0, 0.0, 10.0)
 
 GRADIENT_COLORS = [
     ((0.0, 0.0, 1.0), 0.1), #0.1
@@ -162,6 +167,10 @@ def gl_init():
     GL.glEnable(GL.GL_BLEND)
     GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
     setup_font(GL_FONTS, GL_FONTS_SIZE)  # 使用適當的字體路徑和大小
+    
+    for i in range(255):
+        # turn i to char
+        key_state[chr(i)] = False
     return window
 
 # %%
@@ -276,15 +285,15 @@ def draw_text(shader_program, quad_vao, window_width, window_height):
     GL.glViewport(0, 0, window_width, window_height)
     
 def create_color_code_texture():
-    global color_code_texture, font, GRADIENT_COLORS, GL_VISUALIZE_THRESHOLD
+    global color_code_texture, font, GRADIENT_COLORS, threasold
     
     width, height = 0, 0
     color_code_text_array = []
     color_code_text_color = []
     
-    threadhold = int(GL_VISUALIZE_THRESHOLD * 10)
-    for i in range(threadhold, 10):
-        if i == threadhold: sep = ""
+    threadholds = threasold + 1
+    for i in range(threadholds, 10):
+        if i == threadholds: sep = ""
         else: sep = " | "
         
         text = sep + "0." + str(i)
@@ -570,9 +579,9 @@ def setup_cube():
 
 # %%
 def get_gradient_color(value):
-    if(value < GL_VISUALIZE_THRESHOLD):
+    if(value < threasold):
         return GRADIENT_COLORS[-1]
-    index = int(value * 10) - 1
+    index =  threasold
     if(index >= len(GRADIENT_COLORS) or index < 0):
         return GRADIENT_COLORS[-1]
     return GRADIENT_COLORS[index]
@@ -593,7 +602,7 @@ def draw_model(shader_program, vao, vbo, voxel, model, color, loc):
             for k in range(voxel.shape[2]):
                 if voxel[i, j, k] == True or voxel[i, j, k] >= 0.1:
                     if(voxel[i, j, k] != True):
-                        color, alpha = get_gradient_color(voxel[i, j, k])
+                        color, alpha = get_gradient_color(voxel[i, j, k] * 10)
                     else:
                         color = (0.0, 1.0, 0.0); alpha = 1.0
                     
@@ -623,7 +632,7 @@ def draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao):
         task()
     GL.glViewport(0, 0, 800, 600)
     
-    view = glm.lookAt(glm.vec3(50.0, 50.0, 50.0), glm.vec3(-5.0, 0.0, 10.0), glm.vec3(0.0, 1.0, 0.0))
+    view = glm.lookAt(view_pos, center_pos, glm.vec3(0.0, 1.0, 0.0))
     projection = glm.perspective(glm.radians(45.0), 800.0 / 600.0, 0.1, 100.0)
     
     GL.glUseProgram(shader_program)
@@ -631,7 +640,7 @@ def draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao):
     projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
     GL.glUniformMatrix4fv(viewLoc, 1, GL.GL_FALSE, glm.value_ptr(view))
     GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(projection))
-    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "viewPos"), 50.0, 50.0, 50.0)
+    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "viewPos"), *view_pos)
     
     # Draw light
     lightPos = glm.vec3(0.0, 50.0, 0.0)
@@ -665,7 +674,7 @@ def draw_test(window, shader_program, cube_vao, cube_vbo, quad_vao):
         task()
     GL.glViewport(0, 0, 800, 600)
     
-    view = glm.lookAt(glm.vec3(50.0, 50.0, 50.0), glm.vec3(-5.0, 0.0, 10.0), glm.vec3(0.0, 1.0, 0.0))
+    view = glm.lookAt(view_pos, center_pos, glm.vec3(0.0, 1.0, 0.0))
     projection = glm.perspective(glm.radians(45.0), 800.0 / 600.0, 0.1, 100.0)
     
     GL.glUseProgram(shader_program)
@@ -673,7 +682,7 @@ def draw_test(window, shader_program, cube_vao, cube_vbo, quad_vao):
     projectionLoc = GL.glGetUniformLocation(shader_program, "projection")
     GL.glUniformMatrix4fv(viewLoc, 1, GL.GL_FALSE, glm.value_ptr(view))
     GL.glUniformMatrix4fv(projectionLoc, 1, GL.GL_FALSE, glm.value_ptr(projection))
-    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "viewPos"), 50.0, 50.0, 50.0)
+    GL.glUniform3f(GL.glGetUniformLocation(shader_program, "viewPos"), *view_pos)
     
     # Draw light
     lightPos = glm.vec3(0.0, 50.0, 0.0)
@@ -690,13 +699,14 @@ def draw_test(window, shader_program, cube_vao, cube_vbo, quad_vao):
     window_width, window_height = glfw.get_framebuffer_size(window)
     draw_quad(shader_program, quad_vao, texture_ids[0], window_width, window_height, "top_left")
     draw_text(shader_program, quad_vao, window_width, window_height)
+    draw_color_code(shader_program, quad_vao, window_width, window_height)
     glfw.swap_buffers(window)
     glfw.poll_events()
     
     check_gl_error()
 
 def key_callback(window, key, scancode, action, mods):
-    global texture_index
+    global texture_index, key_state, threasold
     if key == glfw.KEY_SPACE and action == glfw.PRESS:
         texture_index = (texture_index + 1) % len(predicted_texture_array)
         update_text(f"Predicted Voxel: View {texture_index + 1}")
@@ -705,9 +715,37 @@ def key_callback(window, key, scancode, action, mods):
     if key == glfw.KEY_ESCAPE and action == glfw.PRESS:
         glfw.set_window_should_close(window, True)
         
+    if(key == glfw.KEY_W and action == glfw.PRESS):
+        key_state['w'] = True
+    elif(key == glfw.KEY_W and action == glfw.RELEASE):
+        key_state['w'] = False
+        
+    if(key == glfw.KEY_S and action == glfw.PRESS):
+        key_state['s'] = True
+    elif(key == glfw.KEY_S and action == glfw.RELEASE):
+        key_state['s'] = False
+        
+    if(key == glfw.KEY_A and action == glfw.PRESS):
+        key_state['a'] = True
+    elif(key == glfw.KEY_A and action == glfw.RELEASE):
+        key_state['a'] = False
+        
+    if(key == glfw.KEY_D and action == glfw.PRESS):
+        key_state['d'] = True
+    elif(key == glfw.KEY_D and action == glfw.RELEASE):
+        key_state['d'] = False
+    
+    if(key == glfw.KEY_EQUAL and action == glfw.PRESS):
+        if(threasold < 8):
+            threasold += 1
+
+    if(key == glfw.KEY_MINUS and action == glfw.PRESS):
+        if(threasold >= 1):
+            threasold -= 1
+            
 # %%
 def gl_main(events):
-    global gl_task_queue, text_texture
+    global gl_task_queue, text_texture, key_state, view_pos, center_pos, texture_ids, color_code_texture, text_content
     window = gl_init()
     
     glfw.set_key_callback(window, key_callback)
@@ -729,6 +767,15 @@ def gl_main(events):
     color_code_texture = GL.glGenTextures(1)
     
     while not glfw.window_should_close(window):
+        if(key_state['w']):
+            view_pos = move_camera_up_down(center_pos, view_pos, 1)
+        if(key_state['s']):
+            view_pos = move_camera_up_down(center_pos, view_pos, -1)
+        if(key_state['a']):
+            view_pos = move_camera_left_right(center_pos, view_pos, -1)
+        if(key_state['d']):
+            view_pos = move_camera_left_right(center_pos, view_pos, 1)
+            
         if(events == 'train'):
             draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao)
         elif(events == 'test'):

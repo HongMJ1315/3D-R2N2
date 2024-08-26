@@ -297,7 +297,7 @@ def train_3dr2n2(device, voxel_dataset_path = DEFAULT_BINVOX_DATASET_FOLDER,
     print()
     init_plot()
 
-    gl_task_queue = queue.Queue()  # 初始化任务队列
+    gl_task_queue = queue.Queue()  
     
     gl_thread = threading.Thread(target=gl_main, args=('train', ))
     gl_thread.start()
@@ -361,7 +361,7 @@ def test_3dr2n2(device, images_path, checkpoint_path = DEFAULT_3DR2N2_FILE):
 
     load_checkpoint(checkpoint_path, model, optimizer, device)    
     
-    gl_task_queue = queue.Queue()  # 初始化任务队列
+    gl_task_queue = queue.Queue()  
     
     gl_thread = threading.Thread(target=gl_main, args=('test', ))
     gl_thread.start()

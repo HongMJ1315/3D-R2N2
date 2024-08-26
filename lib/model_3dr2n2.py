@@ -215,18 +215,23 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                     # add one dimension to make it 4D tensor
                     tr = r[np.newaxis, :, :, :]
                     renders.append(tr)
+
                 
-                for i in range(25):
-                    multi_view_num = random.randint(1, len(render))
-                    random.shuffle(render)
-                    multi_view = render[:multi_view_num]
-                    renders.append(multi_view)
-                    voxels.append(voxel[0].astype(np.float32))
+                total_view_num = 0
+                if(DEFAULT_3DR2N2_TRAINING_WITH_MULTIVIEW):                
+                    for i in range(DEFAULT_3DR2N2_TRAINING_MULTIVIEW_AMOUNT):
+                        multi_view_num = random.randint(1, len(render))
+                        random.shuffle(render)
+                        multi_view = render[:multi_view_num]
+                        renders.append(multi_view)
+                        voxels.append(voxel[0].astype(np.float32))
+                    total_view_num = DEFAULT_3DR2N2_TRAINING_MULTIVIEW_AMOUNT
                     
-                cnt += 1
                 
-                for _ in range(len(voxel) + 25):
+                for _ in range(len(voxel) + total_view_num):
                     folders.append(folder)
+                
+                cnt += 1
                 
                 if(cnt >= DEFAULT_3DR2N2_TRAINING_IMAGE_AMOUNT):
                     end_io = time.time()
@@ -270,6 +275,11 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
             'train_loss': train_loss,
             'val_loss': val_loss,
         }, filename = checkpoint_path)
+        
+        torch.save(model.state_dict(), "model/3dr2n2_multiview/lstmdecoder.pth")
+        torch.save(model.lstm.state_dict(), "model/3dr2n2_multiview/lstm.pth")
+        torch.save(model.decoder.state_dict(), "model/3dr2n2_multiview/ctnn3d.pth")
+        torch.save(model.state_dict(), "model/3dr2n2_multiview/3dr2n2.pth")
         
         await plot_losses(train_loss, val_loss, epoch_losses)
         

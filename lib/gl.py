@@ -581,7 +581,7 @@ def setup_cube():
 def get_gradient_color(value):
     if(value < threasold):
         return GRADIENT_COLORS[-1]
-    index =  threasold
+    index = value
     if(index >= len(GRADIENT_COLORS) or index < 0):
         return GRADIENT_COLORS[-1]
     return GRADIENT_COLORS[index]
@@ -601,8 +601,9 @@ def draw_model(shader_program, vao, vbo, voxel, model, color, loc):
         for j in range(voxel.shape[1]):
             for k in range(voxel.shape[2]):
                 if voxel[i, j, k] == True or voxel[i, j, k] >= 0.1:
-                    if(voxel[i, j, k] != True):
-                        color, alpha = get_gradient_color(voxel[i, j, k] * 10)
+                    if((type(voxel[i, j, k]) == np.float64 or (type(voxel[i, j, k]) == np.float32 )) and
+                       voxel[i, j, k] != True):
+                        color, alpha = get_gradient_color(int(voxel[i, j, k] * 10))
                     else:
                         color = (0.0, 1.0, 0.0); alpha = 1.0
                     
@@ -706,7 +707,7 @@ def draw_test(window, shader_program, cube_vao, cube_vbo, quad_vao):
     check_gl_error()
 
 def key_callback(window, key, scancode, action, mods):
-    global texture_index, key_state, threasold
+    global texture_index, key_state, threasold, view_pos, center_pos
     if key == glfw.KEY_SPACE and action == glfw.PRESS:
         texture_index = (texture_index + 1) % len(predicted_texture_array)
         update_text(f"Predicted Voxel: View {texture_index + 1}")
@@ -743,6 +744,10 @@ def key_callback(window, key, scancode, action, mods):
         if(threasold >= 1):
             threasold -= 1
             
+    if(key == glfw.KEY_R and action == glfw.PRESS):
+        view_pos = glm.vec3(50, 50, 50)
+        center_pos = glm.vec3(-5.0, 0.0, 10.0)
+
 # %%
 def gl_main(events):
     global gl_task_queue, text_texture, key_state, view_pos, center_pos, texture_ids, color_code_texture, text_content
@@ -768,13 +773,13 @@ def gl_main(events):
     
     while not glfw.window_should_close(window):
         if(key_state['w']):
-            view_pos = move_camera_up_down(center_pos, view_pos, 1)
-        if(key_state['s']):
             view_pos = move_camera_up_down(center_pos, view_pos, -1)
+        if(key_state['s']):
+            view_pos = move_camera_up_down(center_pos, view_pos, 1)
         if(key_state['a']):
-            view_pos = move_camera_left_right(center_pos, view_pos, -1)
-        if(key_state['d']):
             view_pos = move_camera_left_right(center_pos, view_pos, 1)
+        if(key_state['d']):
+            view_pos = move_camera_left_right(center_pos, view_pos, -1)
             
         if(events == 'train'):
             draw_train(window, shader_program, cube_vao, cube_vbo, quad_vao)

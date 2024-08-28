@@ -115,6 +115,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         train_logs.append(loss.item())
         if(len(train_logs) % seg_train_data_len == 0):
             print("Epoch:{} Train Loss:{:.4f} Sub-epoch: {}% Time: {}".format(epoch, sum(train_logs) / len(train_logs), len(train_logs) / seg_train_data_len, time.time() - timer))
+            # print(decode_output)
             timer = time.time()
     
     model.eval()
@@ -182,6 +183,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
     model.train()
     update_text('Start Training 3D-R2N2')
     for epoch in range(start_epoch, num_epochs):
+        print("Epoch:{}".format(epoch))
         start = time.time()
         cnt = 0
         resume = (last_folder is not None)
@@ -276,9 +278,9 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
             'val_loss': val_loss,
         }, filename = checkpoint_path)
         
-        torch.save(model.state_dict(), "model/3dr2n2_multiview/lstmdecoder.pth")
+        torch.save(model.encoder.state_dict(), "model/3dr2n2_multiview/encoder.pth")
         torch.save(model.lstm.state_dict(), "model/3dr2n2_multiview/lstm.pth")
-        torch.save(model.decoder.state_dict(), "model/3dr2n2_multiview/ctnn3d.pth")
+        torch.save(model.decoder.state_dict(), "model/3dr2n2_multiview/decoder.pth")
         torch.save(model.state_dict(), "model/3dr2n2_multiview/3dr2n2.pth")
         
         await plot_losses(train_loss, val_loss, epoch_losses)
@@ -359,7 +361,10 @@ def test_3dr2n2(device, images_path, checkpoint_path = DEFAULT_3DR2N2_FILE):
     model = Model3DR2N2()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-    load_checkpoint(checkpoint_path, model, optimizer, device)    
+    # load model from "/model/3dr2n2_multiview/3dr2n2.pth"
+    model.load_state_dict(torch.load("model/3dr2n2_multiview/3dr2n2.pth"))
+
+    model.to(device)
     
     gl_task_queue = queue.Queue()  
     

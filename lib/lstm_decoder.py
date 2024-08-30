@@ -44,6 +44,24 @@ class LSTM(nn.Module):
         out = self.fc(out[:, -1, :])
         return out, h_0, c_0
         
+class TransformerModel(nn.Module):
+    def __init__(self, input_size=LSTM_NEUROES, hidden_size=LSTM_NEUROES, num_layers=2, nhead=4, dim_feedforward=256, dropout=0.1):
+        super(TransformerModel, self).__init__()
+        self.input_fc = nn.Linear(input_size, hidden_size)
+        self.pre_input_fc = nn.Linear(input_size * 2, hidden_size)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_size, nhead=nhead, dim_feedforward=dim_feedforward, dropout=dropout)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.output_fc = nn.Linear(hidden_size, LSTM_NEUROES)
+
+    def forward(self, input_t, prev_output=None):
+        input_t = self.input_fc(input_t)
+        if prev_output is not None:
+            input_t = torch.cat((input_t, prev_output), dim=1)
+            input_t = self.pre_input_fc(input_t)
+        input_t = input_t.unsqueeze(1)  # 增加一個維度以符合Transformer的輸入要求
+        out = self.transformer_encoder(input_t)
+        out = self.output_fc(out[:, -1, :])
+        return out
 
 
 

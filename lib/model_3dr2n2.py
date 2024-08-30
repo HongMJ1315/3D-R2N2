@@ -19,7 +19,9 @@ from lib.curve import *
 from lib.config import *
 from lib.gl import *
 from lib.autoencoder import Autoencoder, CNNDecoder, CNNEncoder, image_preprocessing
-from lib.lstm_decoder import LSTMDecoder, LSTM, CTNN3DDecoder
+from lib.lstm_decoder import LSTMDecoder, LSTM, CTNN3DDecoder, TransformerModel
+
+ENCODED_TENSOR_SIZE = 1 * 32 * 32 * 32 * 5
 
 class TrainDataset(Dataset):
     def __init__(self, images, voxels, folder):
@@ -57,9 +59,26 @@ class Model3DR2N2(nn.Module):
         out = self.decoder(prev_out)
         out = self.clipped_relu(out)
         return out, prev_out, h_0, c_0
-    
+
+class Model3DR2N2Transformer(nn.Module):
+    def __init__(self):
+        super(Model3DR2N2Transformer, self).__init__()
+        self.encoder = CNNEncoder()
+        self.transformer = TransformerModel()  # 使用新的Transformer模型
+        self.decoder = CTNN3DDecoder()
+        self.clipped_relu = ClippedReLU()  # 使用自定義的激活函數
+
+    def forward(self, x, prev_output, h_0, c_0):
+        out = self.encoder(x)
+        prev_out = self.transformer(out, prev_output)  # 使用Transformer模型
+        out = self.decoder(prev_out)
+        out = self.clipped_relu(out)
+        return out, prev_out, None, None  # 不再需要返回h_0和c_0
+
+
+
 # %% 
-async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, train_loss, val_loss, epoch_loss):
+async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, train_loss, val_loss, epoch_loss, model_type):
     data_len = len(datas)
     train_data, val_data = random_split(datas, [int(data_len*0.8), data_len-int(data_len*0.8)])
     train_data_len = len(train_data)
@@ -81,8 +100,12 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         inputs = inputs.to(device)
         targets = targets.to(device)
         batch_size = inputs.size(0)
-        h_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)
-        c_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)    
+        h_0 = None; c_0 = None
+        try:
+            h_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)
+            c_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)    
+        except:
+            pass
         prev_output = None
         seq_len = inputs.size(1)
         inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
@@ -108,6 +131,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
             update_text(ttext)
             update_train_voxel(decode_voxel[0], original_voxel[0], image, edge)
 
+            
         decode_output = decode_output.view(1, 32, 32, 32)
         loss = criterion(decode_output, targets)
         loss.backward()
@@ -168,8 +192,30 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
     return sum(train_logs) / len(train_logs), sum(val_logs) / len(val_logs)
 
 # %% 
-async def run_training(voxel_dataset_path, rendering_dataset_path, device, checkpoint_path):
-    model = Model3DR2N2()
+async def run_training(voxel_dataset_path, rendering_dataset_path, device, checkpoint_path, model_type):
+    # 
+    total_file = 0
+    for root, dirs, files in os.walk(voxel_dataset_path):
+        for file in files:
+            file_name = os.path.join(root, file)
+            if(file_name.split('.')[-1] == 'binvox'):
+                total_file += 1
+    section = total_file // DEFAULT_3DR2N2_TRAINING_IMAGE_AMOUNT
+    if(total_file % DEFAULT_3DR2N2_TRAINING_IMAGE_AMOUNT != 0):
+        section += 1
+    set_epoch_size(section)
+    print("Total File:{} Section Size:{}".format(total_file, section))
+    
+    model = None
+    if(model_type == 'LSTM'):
+        model = Model3DR2N2()
+        checkpoint_path = checkpoint_path.replace("3dr2n2", "3dr2n2_LSTM")
+        print(checkpoint_path)
+    elif(model_type == 'Transformer'):
+        model = Model3DR2N2Transformer()
+        checkpoint_path = checkpoint_path.replace("3dr2n2", "3dr2n2_Transformer")
+        print(checkpoint_path)
+         
     criterion = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     early_stopping = EarlyStopping(patience=5, min_delta=0.0001)
@@ -240,7 +286,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                     print(time.strftime("%H:%M:%S", time.localtime())) 
                     print('IO Time: {:.4f}'.format(end_io-start_io)) 
                     dataset = TrainDataset(renders, voxels, folders)
-                    await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses)
+                    await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses, model_type)
                     renders = []
                     voxels = []
                     folders = []
@@ -258,7 +304,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
                     
         if(cnt > 0):
             dataset = TrainDataset(renders, voxels, folders)
-            await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses)
+            await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses, model_type)
             renders = []
             voxels = []
             cnt = 0
@@ -291,7 +337,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
         
     return model, epoch_losses
 # %% 
-def train_3dr2n2(device, voxel_dataset_path = DEFAULT_BINVOX_DATASET_FOLDER,
+def train_3dr2n2(device, model_type = 'LSTM', voxel_dataset_path = DEFAULT_BINVOX_DATASET_FOLDER,
                  rendering_dataset_path = DEFAULT_RENDERING_DATASET_FOLDER, 
                  checkpoint_path = DEFAULT_3DR2N2_FILE):
     global gl_task_queue
@@ -304,7 +350,7 @@ def train_3dr2n2(device, voxel_dataset_path = DEFAULT_BINVOX_DATASET_FOLDER,
     gl_thread = threading.Thread(target=gl_main, args=('train', ))
     gl_thread.start()
     
-    result = asyncio.run(run_training(voxel_dataset_path, rendering_dataset_path, device, checkpoint_path))
+    result = asyncio.run(run_training(voxel_dataset_path, rendering_dataset_path, device, checkpoint_path, model_type))
     gl_thread.join()
     model, epoch_losses = result
     model.eval()

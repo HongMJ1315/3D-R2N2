@@ -8,5 +8,5 @@ import torch
 print(torch.__version__)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('Device:{}'.format(device))
-train_3dr2n2(device)
+train_3dr2n2(device, model_type='Transformer')
 print('Finish')

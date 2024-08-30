@@ -9,6 +9,11 @@ ax.set_xlabel('Sub-Epoch')
 ax.set_ylabel('Loss')
 ax.legend()
 
+epoch_size = 0
+
+def set_epoch_size(size):
+    global epoch_size
+    epoch_size = size
 #%%
 def update_plot(train_loss, val_loss, epoch_loss):
     train_line.set_data(range(len(train_loss)), train_loss)

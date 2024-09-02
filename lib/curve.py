@@ -19,7 +19,7 @@ def update_plot(train_loss, val_loss, epoch_loss):
     train_line.set_data(range(len(train_loss)), train_loss)
     val_line.set_data(range(len(val_loss)), val_loss)
     
-    epoch_x = [44 + i * 44 for i in range(len(epoch_loss))]  # 從第44開始
+    epoch_x = [epoch_size + i * epoch_size for i in range(len(epoch_loss))]  # 從第44開始
     epoch = []
     for i in epoch_loss:
         train, val = i

@@ -115,6 +115,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         if(seq_len == 1): text += ' Single View'
         else : text += ' Multi View'
         
+        seq_losses = []
         for t in range(seq_len):
             input = inputs[:, t, :, :, :]
             decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
@@ -148,8 +149,12 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
             inputs = inputs.to(device)
             targets = targets.to(device)
             batch_size = inputs.size(0)
-            h_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)
-            c_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)    
+            h_0 = None; c_0 = None
+            try:
+                h_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)
+                c_0 = torch.zeros(model.lstm.num_layers, batch_size, model.lstm.hidden_size).to(device)    
+            except:
+                pass
             prev_output = None
             seq_len = inputs.size(1)
             inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
@@ -324,10 +329,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
             'val_loss': val_loss,
         }, filename = checkpoint_path)
         
-        torch.save(model.encoder.state_dict(), "model/3dr2n2_multiview/encoder.pth")
-        torch.save(model.lstm.state_dict(), "model/3dr2n2_multiview/lstm.pth")
-        torch.save(model.decoder.state_dict(), "model/3dr2n2_multiview/decoder.pth")
-        torch.save(model.state_dict(), "model/3dr2n2_multiview/3dr2n2.pth")
+        torch.save(model.state_dict(), "model/{}".format(checkpoint_path))
         
         await plot_losses(train_loss, val_loss, epoch_losses)
         
@@ -385,8 +387,11 @@ async def run_testing(model, images_path, device):
     
     
     with torch.no_grad():
-        h_0 = torch.zeros(model.lstm.num_layers, 1, model.lstm.hidden_size).to(device)
-        c_0 = torch.zeros(model.lstm.num_layers, 1, model.lstm.hidden_size).to(device)    
+        h_0 = None; c_0 = None
+        try:
+            h_0 = torch.zeros(model.lstm.num_layers, 1, model.lstm.hidden_size).to(device)
+            c_0 = torch.zeros(model.lstm.num_layers, 1, model.lstm.hidden_size).to(device)    
+        except: pass
         prev_output = None
         for t in range(seq_len):
             input = images[:, t, :, :, :]
@@ -404,11 +409,11 @@ async def run_testing(model, images_path, device):
 
 def test_3dr2n2(device, images_path, checkpoint_path = DEFAULT_3DR2N2_FILE):
     global gl_task_queue
-    model = Model3DR2N2()
+    model = Model3DR2N2Transformer()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
     # load model from "/model/3dr2n2_multiview/3dr2n2.pth"
-    model.load_state_dict(torch.load("model/3dr2n2_multiview/3dr2n2.pth"))
+    model.load_state_dict(torch.load("model/3dr2n2_Transformer_section.pth.tar"))
 
     model.to(device)
     

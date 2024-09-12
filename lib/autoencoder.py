@@ -44,7 +44,7 @@ class CNNEncoder(nn.Module):
         # Input Layer 1 
         self.cnn1 = nn.Conv2d(in_channels=5, out_channels=48, 
                               kernel_size=5, stride=1, padding=2)
-        self.relu1 = nn.ReLU()
+        self.relu1 = nn.LeakyReLU(0.5)
         self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2)
         # out = 48*113*113
         self.dropout1 = nn.Dropout(p=0.25)  # Dropout layer after first max pooling
@@ -53,7 +53,7 @@ class CNNEncoder(nn.Module):
         # Hidden Layer 2
         self.cnn2 = nn.Conv2d(in_channels=48, out_channels=64,
                               kernel_size=5, stride=1, padding=2)
-        self.relu2 = nn.ReLU()
+        self.relu2 = nn.LeakyReLU(0.5)
         self.maxpool2 = nn.MaxPool2d(kernel_size=3, stride=2)
         # out = 64*56*56
         self.dropout2 = nn.Dropout(p=0.25)  # Dropout layer after second max pooling
@@ -61,15 +61,17 @@ class CNNEncoder(nn.Module):
         # Hidden Layer 3 
         self.cnn3 = nn.Conv2d(in_channels=64, out_channels=128,
                               kernel_size=3, stride=1, padding=1)
-        self.relu3 = nn.ReLU()
+        self.relu3 = nn.LeakyReLU(0.5)
         self.maxpool3 = nn.MaxPool2d(kernel_size=3, stride=2)
-        # out = 128*27*27
+        # out = 128*16*16
         self.dropout3 = nn.Dropout(p=0.25)
         
         # Output Layer 4
         # 轉為 1D
-        self.fc1 = nn.Linear(32768, ENCODED_TENSOR_SIZE)
-
+        self.fc1 = nn.Linear(32768, 16384)
+        self.relu4 = nn.LeakyReLU(0.5)
+        self.fc2 = nn.Linear(16384, ENCODED_TENSOR_SIZE)
+        self.relu5 = nn.LeakyReLU(0.5)
         
     def forward(self, x):
         # Input Layer 1
@@ -93,6 +95,9 @@ class CNNEncoder(nn.Module):
         # Output Layer 4
         out = out.view(1, -1)
         out = self.fc1(out)
+        out = self.relu4(out)
+        out = self.fc2(out)
+        out = self.relu5(out)
 
                 
         return out

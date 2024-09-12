@@ -50,14 +50,13 @@ class Model3DR2N2(nn.Module):
         self.encoder = CNNEncoder()
         self.lstm = LSTM()
         self.decoder = CTNN3DDecoder()
-        self.clipped_relu = ClippedReLU()  # 使用自定義的激活函數
-
+        self.relu = ClippedReLU()  # 使用自定義的激活函數
         
     def forward(self, x, prev_output, h_0, c_0):
         out = self.encoder(x)
         prev_out, h_0, c_0 = self.lstm(out, prev_output, h_0, c_0)
         out = self.decoder(prev_out)
-        out = self.clipped_relu(out)
+        out = self.relu(out)
         return out, prev_out, h_0, c_0
 
 class Model3DR2N2Transformer(nn.Module):
@@ -66,13 +65,13 @@ class Model3DR2N2Transformer(nn.Module):
         self.encoder = CNNEncoder()
         self.transformer = TransformerModel()  # 使用新的Transformer模型
         self.decoder = CTNN3DDecoder()
-        self.clipped_relu = ClippedReLU()  # 使用自定義的激活函數
-
+        self.relu = ClippedReLU()  # 使用自定義的激活函數        
+        
     def forward(self, x, prev_output, h_0, c_0):
         out = self.encoder(x)
         prev_out = self.transformer(out, prev_output)  # 使用Transformer模型
         out = self.decoder(prev_out)
-        out = self.clipped_relu(out)
+        out = self.relu(out)
         return out, prev_out, None, None  # 不再需要返回h_0和c_0
 
 
@@ -409,11 +408,10 @@ async def run_testing(model, images_path, device):
 
 def test_3dr2n2(device, images_path, checkpoint_path = DEFAULT_3DR2N2_FILE):
     global gl_task_queue
-    model = Model3DR2N2Transformer()
+    model = Model3DR2N2()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-    # load model from "/model/3dr2n2_multiview/3dr2n2.pth"
-    model.load_state_dict(torch.load("model/3dr2n2_Transformer_section.pth.tar"))
+    start_epoch, epoch_losses, last_folder, train_loss, val_loss = load_checkpoint("3dr2n2_LSTM_Fixed_activation_ReLU_section.pth.tar", model, optimizer, device)
 
     model.to(device)
     

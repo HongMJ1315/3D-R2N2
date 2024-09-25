@@ -199,11 +199,14 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
 async def run_training(voxel_dataset_path, rendering_dataset_path, device, checkpoint_path, model_type):
     # 
     total_file = 0
+    file_name_list = []
     for root, dirs, files in os.walk(voxel_dataset_path):
         for file in files:
             file_name = os.path.join(root, file)
             if(file_name.split('.')[-1] == 'binvox'):
                 total_file += 1
+                file_name_list.append(file_name)
+                
     section = total_file // DEFAULT_3DR2N2_TRAINING_IMAGE_AMOUNT
     if(total_file % DEFAULT_3DR2N2_TRAINING_IMAGE_AMOUNT != 0):
         section += 1
@@ -225,14 +228,18 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
     early_stopping = EarlyStopping(patience=5, min_delta=0.0001)
     epoch_losses = []
     num_epochs = 100
-    
-    start_epoch, epoch_losses, last_folder, train_loss, val_loss = load_checkpoint(checkpoint_path, model, optimizer, device)
+    trained_file_list = []
+
+    start_epoch, epoch_losses, last_folder, train_loss, val_loss, trained_file_list = load_checkpoint(checkpoint_path, model, optimizer, device)
     await plot_losses(train_loss, val_loss, epoch_losses)
 
     model.to(device)
     model.train()
     update_text('Start Training 3D-R2N2')
     for epoch in range(start_epoch, num_epochs):
+        # shuffle file_name_list
+        random.shuffle(file_name_list)
+        random.shuffle(file_name_list)
         print("Epoch:{}".format(epoch))
         start = time.time()
         cnt = 0
@@ -242,75 +249,77 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
         voxels = []
         folders = []
         start_io = time.time()
-        for root, dirs, files in os.walk(voxel_dataset_path):
-            for file in files:
-                file_name = os.path.join(root, file)
-                folder = file_name.split('/')
-                folder = folder[-3] + '/' + folder[-2]
-                if(resume):
-                    if(folder == last_folder):
-                        print("Resume from {}, Skip {} Files".format(folder, skip_cnt))
-                        resume = False
-                        last_folder = None
-                    skip_cnt += 1
-                    continue
-                if(file_name.split('.')[-1] != 'binvox'):
-                    continue
-                
-                update_text('Read Data:{}'.format(folder))
-                voxel, render = read_rendering_and_voxel(file_name, rendering_dataset_path)
-                if(voxel is None or render is None or len(voxel) != len(render)):
-                    continue
-                for v in voxel:
-                    voxels.append(v.astype(np.float32))
-                for r in render:
-                    # add one dimension to make it 4D tensor
-                    tr = r[np.newaxis, :, :, :]
-                    renders.append(tr)
+        for file_name in file_name_list:
+            folder = file_name.split('/')
+            folder = folder[-3] + '/' + folder[-2]
+            if(resume):
+                if(folder in trained_file_list):
+                    print("Resume from {}, Skip {} Files".format(folder, skip_cnt))
+                    resume = False
+                    last_folder = None
+                skip_cnt += 1
+                continue
+            if(file_name.split('.')[-1] != 'binvox'):
+                continue
+            trained_file_list.append(folder)
+            update_text('Read Data:{}'.format(folder))
+            voxel, render = read_rendering_and_voxel(file_name, rendering_dataset_path)
+            if(voxel is None or render is None or len(voxel) != len(render)):
+                continue
+            for v in voxel:
+                voxels.append(v.astype(np.float32))
+            for r in render:
+                # add one dimension to make it 4D tensor
+                tr = r[np.newaxis, :, :, :]
+                renders.append(tr)
 
+            
+            total_view_num = 0
+            if(DEFAULT_3DR2N2_TRAINING_WITH_MULTIVIEW):                
+                for i in range(DEFAULT_3DR2N2_TRAINING_MULTIVIEW_AMOUNT):
+                    multi_view_num = random.randint(1, len(render))
+                    random.shuffle(render)
+                    multi_view = render[:multi_view_num]
+                    renders.append(multi_view)
+                    voxels.append(voxel[0].astype(np.float32))
+                total_view_num = DEFAULT_3DR2N2_TRAINING_MULTIVIEW_AMOUNT
                 
-                total_view_num = 0
-                if(DEFAULT_3DR2N2_TRAINING_WITH_MULTIVIEW):                
-                    for i in range(DEFAULT_3DR2N2_TRAINING_MULTIVIEW_AMOUNT):
-                        multi_view_num = random.randint(1, len(render))
-                        random.shuffle(render)
-                        multi_view = render[:multi_view_num]
-                        renders.append(multi_view)
-                        voxels.append(voxel[0].astype(np.float32))
-                    total_view_num = DEFAULT_3DR2N2_TRAINING_MULTIVIEW_AMOUNT
-                    
+            
+            for _ in range(len(voxel) + total_view_num):
+                folders.append(folder)
+            
+            cnt += 1
+            
+            if(cnt >= DEFAULT_3DR2N2_TRAINING_IMAGE_AMOUNT):
+                end_io = time.time()
+                print(time.strftime("%H:%M:%S", time.localtime())) 
+                print('IO Time: {:.4f}'.format(end_io-start_io)) 
+                dataset = TrainDataset(renders, voxels, folders)
+                await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses, model_type)
+
+                renders = []
+                voxels = []
+                folders = []
+                cnt = 0
+                start_io = time.time()
+                save_checkpoint({
+                    'epoch': epoch,
+                    'state_dict': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'epoch_losses': epoch_losses,
+                    'last_file': folder,
+                    'train_loss': train_loss,
+                    'val_loss': val_loss,
+                    'trained_file_list': trained_file_list,
+                }, filename = checkpoint_path)
                 
-                for _ in range(len(voxel) + total_view_num):
-                    folders.append(folder)
-                
-                cnt += 1
-                
-                if(cnt >= DEFAULT_3DR2N2_TRAINING_IMAGE_AMOUNT):
-                    end_io = time.time()
-                    print(time.strftime("%H:%M:%S", time.localtime())) 
-                    print('IO Time: {:.4f}'.format(end_io-start_io)) 
-                    dataset = TrainDataset(renders, voxels, folders)
-                    await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses, model_type)
-                    renders = []
-                    voxels = []
-                    folders = []
-                    cnt = 0
-                    start_io = time.time()
-                    save_checkpoint({
-                        'epoch': epoch,
-                        'state_dict': model.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'epoch_losses': epoch_losses,
-                        'last_file': folder,
-                        'train_loss': train_loss,
-                        'val_loss': val_loss,
-                    }, filename = checkpoint_path)
-                    
         if(cnt > 0):
             dataset = TrainDataset(renders, voxels, folders)
             await train_sub_epoch(epoch, model, dataset, criterion, optimizer, device, train_loss, val_loss, epoch_losses, model_type)
             renders = []
             voxels = []
+            folders = []
+            trained_file_list = []
             cnt = 0
         end = time.time()
         epoch_train_loss = sum(train_loss)/len(train_loss)
@@ -326,6 +335,7 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
             'last_file': None,
             'train_loss': train_loss,
             'val_loss': val_loss,
+            'trained_file_list': []
         }, filename = checkpoint_path)
         
         torch.save(model.state_dict(), "model/{}".format(checkpoint_path))
@@ -411,7 +421,7 @@ def test_3dr2n2(device, images_path, checkpoint_path = DEFAULT_3DR2N2_FILE):
     model = Model3DR2N2()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-    start_epoch, epoch_losses, last_folder, train_loss, val_loss = load_checkpoint("3dr2n2_LSTM_Fixed_activation_ReLU_section.pth.tar", model, optimizer, device)
+    load_checkpoint("3dr2n2_LSTM_LeakReLU_Clip_chair.pth.tar", model, optimizer, device)
 
     model.to(device)
     

@@ -40,9 +40,11 @@ def load_checkpoint(filename, model, optimizer, device):
         last_file = checkpoint.get('last_file', None)
         train_loss = checkpoint.get('train_loss', [])
         val_loss = checkpoint.get('val_loss', [])
+        trained_file_list = checkpoint.get('trained_file_list', [])
         print(train_loss, val_loss, epoch_losses, sep='\n')
+        print(trained_file_list)
         print(f"Loaded checkpoint '{filename}' (epoch {start_epoch})")
-        return start_epoch, epoch_losses, last_file, train_loss, val_loss
+        return start_epoch, epoch_losses, last_file, train_loss, val_loss, trained_file_list
     else:
         print(f"No checkpoint found at '{filename}'")
-        return 0, [], None, [], []
+        return 0, [], None, [], [], []

@@ -50,13 +50,13 @@ class Model3DR2N2(nn.Module):
         self.encoder = CNNEncoder()
         self.lstm = LSTM()
         self.decoder = CTNN3DDecoder()
-        self.relu = ClippedReLU()  # 使用自定義的激活函數
+        # self.relu = nn.Sigmoid() # 使用自定義的激活函數
         
     def forward(self, x, prev_output, h_0, c_0):
         out = self.encoder(x)
         prev_out, h_0, c_0 = self.lstm(out, prev_output, h_0, c_0)
         out = self.decoder(prev_out)
-        out = self.relu(out)
+        # out = self.relu(out)
         return out, prev_out, h_0, c_0
 
 class Model3DR2N2Transformer(nn.Module):
@@ -65,13 +65,13 @@ class Model3DR2N2Transformer(nn.Module):
         self.encoder = CNNEncoder()
         self.transformer = TransformerModel()  # 使用新的Transformer模型
         self.decoder = CTNN3DDecoder()
-        self.relu = ClippedReLU()  # 使用自定義的激活函數        
+        # self.relu = ClippedReLU()  # 使用自定義的激活函數        
         
     def forward(self, x, prev_output, h_0, c_0):
         out = self.encoder(x)
         prev_out = self.transformer(out, prev_output)  # 使用Transformer模型
         out = self.decoder(prev_out)
-        out = self.relu(out)
+        # out = self.relu(out)
         return out, prev_out, None, None  # 不再需要返回h_0和c_0
 
 
@@ -108,12 +108,15 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         prev_output = None
         seq_len = inputs.size(1)
         inputs = inputs.view(batch_size, seq_len, 5, 137, 137)
-        
+        inputs = inputs - 0.5
+
         # Visualize Text
         text = 'Training Epoch:{} Folder:{}'.format(epoch, folder[0])
         if(seq_len == 1): text += ' Single View'
         else : text += ' Multi View'
         
+        min_value = 1.0
+        max_value = 0.0
         seq_losses = []
         for t in range(seq_len):
             input = inputs[:, t, :, :, :]
@@ -129,8 +132,10 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
             image = image.cpu().detach().numpy()
             edge = edge.cpu().detach().numpy()
             update_text(ttext)
-            update_train_voxel(decode_voxel[0], original_voxel[0], image, edge)
-
+            update_train_voxel(decode_voxel[0], original_voxel[0], image + 0.5, edge + 0.5)
+            
+            min_value = min(min_value, decode_voxel.min())
+            max_value = max(max_value, decode_voxel.max())
             
         decode_output = decode_output.view(1, 32, 32, 32)
         loss = criterion(decode_output, targets)
@@ -139,6 +144,7 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         train_logs.append(loss.item())
         if(len(train_logs) % seg_train_data_len == 0):
             print("Epoch:{} Train Loss:{:.4f} Sub-epoch: {}% Time: {}".format(epoch, sum(train_logs) / len(train_logs), len(train_logs) / seg_train_data_len, time.time() - timer))
+            print("Min Value:{} Max Value:{}".format(min_value, max_value))
             # print(decode_output)
             timer = time.time()
     
@@ -421,7 +427,7 @@ def test_3dr2n2(device, images_path, checkpoint_path = DEFAULT_3DR2N2_FILE):
     model = Model3DR2N2()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-    load_checkpoint("3dr2n2_LSTM_LeakReLU_Clip_chair.pth.tar", model, optimizer, device)
+    load_checkpoint("3dr2n2_LSTM_LSTM_GPT_section.pth.tar", model, optimizer, device)
 
     model.to(device)
     

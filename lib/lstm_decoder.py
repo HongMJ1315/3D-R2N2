@@ -74,23 +74,22 @@ class CTNN3DDecoder(nn.Module):
         self.conv1 = nn.ConvTranspose3d(in_channels=16, out_channels=12, kernel_size=3, stride=1, padding=1)
         self.relu1 = nn.ReLU()
         self.upsample1 = nn.Upsample(scale_factor=2, mode='nearest')
-        self.dropout1 = nn.Dropout3d(p=0.25)
+        self.dropout1 = nn.Dropout3d(p=0.1)
         
         self.conv2 = nn.ConvTranspose3d(in_channels=12, out_channels=8, kernel_size=3, stride=1, padding=1)
         self.relu2 = nn.ReLU()
         self.upsample2 = nn.Upsample(scale_factor=2, mode='nearest')
-        self.dropout2 = nn.Dropout3d(p=0.25)
+        self.dropout2 = nn.Dropout3d(p=0.1)
         
         self.conv3 = nn.ConvTranspose3d(in_channels=8, out_channels=4, kernel_size=3, stride=1, padding=1)
         self.relu3 = nn.ReLU()
         self.upsample3 = nn.Upsample(scale_factor=2, mode='nearest')
-        self.dropout3 = nn.Dropout3d(p=0.25)
+        self.dropout3 = nn.Dropout3d(p=0.1)
         
         self.conv4 = nn.ConvTranspose3d(in_channels=4, out_channels=1, kernel_size=3, stride=1, padding=1)
-        self.relu4 = nn.ReLU()
+        self.relu4 = nn.Sigmoid()
         self.upsample4 = nn.Upsample(size=(32, 32, 32), mode='nearest')
         
-        self.relu5 = nn.ReLU()
     def forward(self, x):
         out = self.fc(x)
         out = out.view(1, 16, 8, 8, 8)
@@ -114,7 +113,6 @@ class CTNN3DDecoder(nn.Module):
         out = self.relu4(out)
         out = self.upsample4(out)
         
-        out = self.relu5(out)
         return out
 
 # model = CTNN3DDecoder()

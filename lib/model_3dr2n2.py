@@ -43,6 +43,46 @@ class ClippedReLU(nn.Module):
 
     def forward(self, x):
         return torch.clamp(x, min=self.min_value, max=self.max_value)
+    
+# 在您的代码中添加Dice Loss的定义
+class DiceLoss(nn.Module):
+    def __init__(self, smooth=1):
+        super(DiceLoss, self).__init__()
+        self.smooth = smooth
+
+    def forward(self, inputs, targets):
+        # 将输入和目标展开为一维向量
+        inputs = inputs.contiguous().view(-1)
+        targets = targets.contiguous().view(-1)
+        
+        inputs = torch.sigmoid(inputs)
+        
+        # 计算交集和并集
+        intersection = (inputs * targets).sum()
+        total = inputs.sum() + targets.sum()
+        
+        # 计算Dice系数
+        dice = (2. * intersection + self.smooth) / (total + self.smooth)
+        
+        # 返回Dice Loss
+        return 1 - dice
+
+class CombinedLoss(nn.Module):
+    def __init__(self, weight_bce=0.5, weight_dice=0.5):
+        super(CombinedLoss, self).__init__()
+        self.bce_loss = nn.BCEWithLogitsLoss()
+        self.dice_loss = DiceLoss()
+        self.weight_bce = weight_bce
+        self.weight_dice = weight_dice
+
+    def forward(self, inputs, targets):
+        # 计算 BCEWithLogitsLoss
+        bce = self.bce_loss(inputs, targets)
+        # 计算 DiceLoss
+        dice = self.dice_loss(inputs, targets)
+        # 组合损失
+        loss = self.weight_bce * bce + self.weight_dice * dice
+        return loss
 
 class Model3DR2N2(nn.Module):
     def __init__(self):
@@ -120,13 +160,14 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
         seq_losses = []
         for t in range(seq_len):
             input = inputs[:, t, :, :, :]
-            decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
+            orignal_decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
             
             # Visualize
             ttext = text + ' ' + str(t)
             image = inputs[:, t, 0:4, :, :].view(4, 137, 137)
             edge = inputs[:, t, 4, :, :].view(1, 137, 137)
-            decode_output = decode_output.view(1, 32, 32, 32)
+            orignal_decode_output = orignal_decode_output.view(1, 32, 32, 32)
+            decode_output = torch.sigmoid(orignal_decode_output)
             decode_voxel = decode_output.cpu().detach().numpy()
             original_voxel = targets.cpu().detach().numpy()
             image = image.cpu().detach().numpy()
@@ -137,8 +178,8 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
             min_value = min(min_value, decode_voxel.min())
             max_value = max(max_value, decode_voxel.max())
             
-        decode_output = decode_output.view(1, 32, 32, 32)
-        loss = criterion(decode_output, targets)
+        orignal_decode_output = orignal_decode_output.view(1, 32, 32, 32)
+        loss = criterion(orignal_decode_output, targets)
         loss.backward()
         optimizer.step()
         train_logs.append(loss.item())
@@ -170,13 +211,14 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
             else : text += ' Multi View'
             for t in range(seq_len):
                 input = inputs[:, t, :, :, :]
-                decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
+                orignal_decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
                 
                 # Visualize
                 ttext = text + ' ' + str(t)
                 image = inputs[:, t, 0:4, :, :].view(4, 137, 137)
                 edge = inputs[:, t, 4, :, :].view(1, 137, 137)
-                decode_output = decode_output.view(1, 32, 32, 32)
+                orignal_decode_output = orignal_decode_output.view(1, 32, 32, 32)
+                decode_output = torch.sigmoid(orignal_decode_output)
                 decode_voxel = decode_output.cpu().detach().numpy()
                 original_voxel = targets.cpu().detach().numpy()
                 image = image.cpu().detach().numpy()
@@ -184,16 +226,15 @@ async def train_sub_epoch(epoch, model, datas, criterion, optimizer, device, tra
                 update_text(ttext)
                 update_train_voxel(decode_voxel[0], original_voxel[0], image, edge)
                 
-            decode_output = decode_output.view(1, 32, 32, 32)
-            loss = criterion(decode_output, targets)
+            loss = criterion(orignal_decode_output, targets)
             val_logs.append(loss.item())
     
     end = time.time()
     
-    
-    print("Epoch:{} Sub Train Time:{:.2f} Train Loss:{:.4f} Val Loss:{:.4f}".format(epoch, end - start,
-                                                                                    sum(train_logs) / len(train_logs),
-                                                                                    sum(val_logs) / len(val_logs)))
+        
+    print("Epoch:{} Train Loss:{:.4f} Sub-epoch: {}% Time: {} Learning Rate: {:.6f}".format(
+        epoch, sum(train_logs) / len(train_logs), len(train_logs) / seg_train_data_len, time.time() - timer, optimizer.param_groups[0]['lr']
+    ))
     train_loss.append(sum(train_logs) / len(train_logs))
     val_loss.append(sum(val_logs) / len(val_logs))
     
@@ -229,11 +270,19 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
         checkpoint_path = checkpoint_path.replace("3dr2n2", "3dr2n2_Transformer")
         print(checkpoint_path)
          
-    criterion = nn.BCELoss()
+    criterion = nn.BCEWithLogitsLoss()
+    # criterion = nn.BCELoss()
+    # criterion = DiceLoss()
+# 定义优化器
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-    early_stopping = EarlyStopping(patience=5, min_delta=0.0001)
+
+    # 添加学习率调度器
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=2, verbose=True, min_lr=1e-6
+    )
+    early_stopping = EarlyStopping(patience=5, min_delta=0.0001, path='best_model.pth')    
     epoch_losses = []
-    num_epochs = 100
+    num_epochs = 10
     trained_file_list = []
 
     start_epoch, epoch_losses, last_folder, train_loss, val_loss, trained_file_list = load_checkpoint(checkpoint_path, model, optimizer, device)
@@ -330,6 +379,10 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
         end = time.time()
         epoch_train_loss = sum(train_loss)/len(train_loss)
         epoch_val_loss = sum(val_loss)/len(val_loss)
+        
+        scheduler.step(epoch_val_loss)
+        current_lr = optimizer.param_groups[0]['lr']
+        print("Epoch:{} Current Learning Rate:{}".format(epoch, current_lr))
         print("Epoch:{} Time:{:.2f} Train Loss:{:.4f} Val Loss:{:.4f}".format(epoch, end-start, epoch_train_loss, epoch_val_loss))
         epoch_losses.append((epoch_train_loss, epoch_val_loss))
         
@@ -348,9 +401,9 @@ async def run_training(voxel_dataset_path, rendering_dataset_path, device, check
         
         await plot_losses(train_loss, val_loss, epoch_losses)
         
-        if early_stopping(epoch_val_loss):
-            print("Early Stopping at Epoch:{}".format(epoch))
-            break
+        # if early_stopping(epoch_val_loss, model):
+        #     print("Early Stopping at Epoch:{}".format(epoch))
+        #     break
         
     return model, epoch_losses
 # %% 
@@ -411,6 +464,7 @@ async def run_testing(model, images_path, device):
         for t in range(seq_len):
             input = images[:, t, :, :, :]
             decode_output , prev_output, h_0, c_0 = model(input, prev_output, h_0, c_0)
+            decode_output = torch.sigmoid(decode_output)
             print(prev_output, h_0, c_0, sep='\n-----------\n', end='\n~~~~~~~~~~~~~~~~~~~~~~~~~~\n')
             decode_output = decode_output.view(1, 32, 32, 32)
             voxels.append(decode_output.cpu().detach().numpy())
@@ -427,7 +481,7 @@ def test_3dr2n2(device, images_path, checkpoint_path = DEFAULT_3DR2N2_FILE):
     model = Model3DR2N2()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-    load_checkpoint("3dr2n2_LSTM_LSTM_GPT_section.pth.tar", model, optimizer, device)
+    load_checkpoint(checkpoint_path, model, optimizer, device)
 
     model.to(device)
     
@@ -442,3 +496,12 @@ def test_3dr2n2(device, images_path, checkpoint_path = DEFAULT_3DR2N2_FILE):
     voxels, images = result
     
     return voxels, images
+
+def get_loss_value(checkpoint_path = DEFAULT_3DR2N2_FILE):
+    model = Model3DR2N2()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    device = torch.device("cpu")
+    _, epoch_loss, _, train_loss, val_loss, _ = load_checkpoint(checkpoint_path, model, optimizer, device)
+    for i in epoch_loss: print(i[0])
+    print()
+    for i in epoch_loss: print(i[1])

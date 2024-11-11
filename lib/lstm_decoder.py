@@ -72,22 +72,25 @@ class CTNN3DDecoder(nn.Module):
         self.fc = nn.Linear(LSTM_NEUROES, 8*8*8*16)  # 假設 LSTM_NEUROES 是可變的
         
         self.conv1 = nn.ConvTranspose3d(in_channels=16, out_channels=12, kernel_size=3, stride=1, padding=1)
-        self.relu1 = nn.ReLU()
+        self.relu1 = nn.Sigmoid()
+        # self.relu1 = nn.LeakyReLU(0.5)
         self.upsample1 = nn.Upsample(scale_factor=2, mode='nearest')
         self.dropout1 = nn.Dropout3d(p=0.1)
         
         self.conv2 = nn.ConvTranspose3d(in_channels=12, out_channels=8, kernel_size=3, stride=1, padding=1)
-        self.relu2 = nn.ReLU()
+        self.relu2 = nn.Sigmoid()
+        # self.relu2 = nn.LeakyReLU(0.5)
         self.upsample2 = nn.Upsample(scale_factor=2, mode='nearest')
         self.dropout2 = nn.Dropout3d(p=0.1)
         
         self.conv3 = nn.ConvTranspose3d(in_channels=8, out_channels=4, kernel_size=3, stride=1, padding=1)
-        self.relu3 = nn.ReLU()
+        self.relu3 = nn.Sigmoid()
+        # self.relu3 = nn.LeakyReLU(0.5)
         self.upsample3 = nn.Upsample(scale_factor=2, mode='nearest')
         self.dropout3 = nn.Dropout3d(p=0.1)
         
         self.conv4 = nn.ConvTranspose3d(in_channels=4, out_channels=1, kernel_size=3, stride=1, padding=1)
-        self.relu4 = nn.Sigmoid()
+        # self.relu4 = nn.Sigmoid()
         self.upsample4 = nn.Upsample(size=(32, 32, 32), mode='nearest')
         
     def forward(self, x):
@@ -110,7 +113,7 @@ class CTNN3DDecoder(nn.Module):
         out = self.dropout3(out)
         
         out = self.conv4(out)
-        out = self.relu4(out)
+        # out = self.relu4(out)
         out = self.upsample4(out)
         
         return out

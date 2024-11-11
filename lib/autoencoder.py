@@ -44,7 +44,8 @@ class CNNEncoder(nn.Module):
         # Input Layer 1 
         self.cnn1 = nn.Conv2d(in_channels=5, out_channels=48, 
                               kernel_size=5, stride=1, padding=2)
-        self.relu1 = nn.ReLU()
+        self.relu1 = nn.Sigmoid()
+        # self.relu1 = nn.LeakyReLU(0.5)
         self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2)
         # out = 48*113*113
         self.dropout1 = nn.Dropout(p=0.1)  # Dropout layer after first max pooling
@@ -53,7 +54,8 @@ class CNNEncoder(nn.Module):
         # Hidden Layer 2
         self.cnn2 = nn.Conv2d(in_channels=48, out_channels=64,
                               kernel_size=5, stride=1, padding=2)
-        self.relu2 = nn.ReLU()
+        self.relu2 = nn.Sigmoid()
+        # self.relu2 = nn.LeakyReLU(0.5)
         self.maxpool2 = nn.MaxPool2d(kernel_size=3, stride=2)
         # out = 64*56*56
         self.dropout2 = nn.Dropout(p=0.1)  # Dropout layer after second max pooling
@@ -61,7 +63,8 @@ class CNNEncoder(nn.Module):
         # Hidden Layer 3 
         self.cnn3 = nn.Conv2d(in_channels=64, out_channels=128,
                               kernel_size=3, stride=1, padding=1)
-        self.relu3 = nn.ReLU()
+        self.relu3 = nn.Sigmoid()
+        # self.relu3 = nn.LeakyReLU(0.5)
         self.maxpool3 = nn.MaxPool2d(kernel_size=3, stride=2)
         # out = 128*16*16
         self.dropout3 = nn.Dropout(p=0.1)
@@ -218,7 +221,7 @@ async def run_training(file_path, device, checkpoint_path):
         file_path += "/"
     
     model = Autoencoder()
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     num_epochs = 100
     early_stopping = EarlyStopping(patience=5, min_delta=0.0001)
